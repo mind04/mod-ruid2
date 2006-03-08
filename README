@@ -1,0 +1,80 @@
+WTF
+mod_ruid is suexec module for apache 2.0, based on mod_suid2
+
+-it runs only on linux because afaik only linux has implemented posix 1003.1e capabilities
+-it has better performance than mod_suid2 because it doesn`t need to kill httpd children
+ after one request. it makes use of kernel capabilites and after receiving a new request suids again.
+-there are some security issues, for instance if attacker successfully exploits the httpd process,
+ he can set effective capabilities and setuid to root. i recommend to use some security patch in kernel (grsec),
+ or something..
+
+-there are two main operation modes: stat and config
+ 1. stat
+ is default, httpd setuid and setgid to uid and gid of requested filename(script)/directory
+ this is good if you use mod_vhost_alias for virtual hosting
+
+ 2. config
+ like mod_suid2, you must define uid and gid 
+
+INSTALL
+ 1. download and install latest libcap from here
+ 2. run /apachedir/bin/apxs -a -i -l cap -c mod_ruid.c
+ 3. configure httpd.conf
+ 4. restart apache
+
+CONFIGURE OPTIONS:
+ RMode config|stat (default is stat)
+ RUidGid user|#uid group|#gid - when RMode is config, set to this uid and gid
+
+ RMinUidGid user|#uid group|#gid - when uid/gid is < than min uid/gid set to default uid/gid
+ RDefaultUidGid user|#uid group|#gid
+
+ RGroups group1 group2 - aditional groups set via setgroups
+
+ RCoreDump - on or off, if on, you can have coredumps of httpd after crash (default off)
+ RCoreDumpSize - limit size of coredump in bytes, 0 is unlimited (default 0)
+
+EXAMPLE:
+
+LoadModule ruid_module   modules/mod_ruid.so
+User                     apache
+Group                    apache
+RMode                    stat
+RGroups                  apachetmp
+
+# uncoment if you want coredumps after httpd crash (coredump direcory must have 777 permissions)
+#RCoreDump		on
+#CoreDumpDirectory	/usr/apache/core
+
+
+NameVirtualHost 192.168.0.1
+<VirtualHost example.com>
+  ServerAdmin    webmaster@example.com
+  DocumentRoot   /home/example.com/public_html
+  ServerName     example.com
+  ServerAlias    www.example.com
+  RMode          config
+  RUidGid        user1 group1
+  RGroups        apachetmp
+</VirtualHost>
+
+<VirtualHost example.net>
+  ServerAdmin    webmaster@example.net
+  DocumentRoot   /home/example.net/public_html
+  ServerName     example.net
+  ServerAlias    www.example.net
+</VirtualHost>
+
+CHANGELOG
+30.aug.2005 - 0.6 - changed hook for main function (ruid_uiiii) to ap_hook_header_parser and don't stat the file, use finfo structure to get uid/gid (if RMode stat)
+23.oct.2004 - 0.5 - after request sgid/suid back to User and Group
+11.oct.2004 - 0.4 - first release
+
+LICENCE
+ASL-2.0(Apache Software License)
+
+Copyright 2004 by Hideo NAKAMITSU. All rights reserved
+Copyright 2004 by Pavel Stano. All rights reserved
+
+THANKS
+bon for help with english ;)
