@@ -347,6 +347,8 @@ static int ruid_uiiii (request_rec * r)
 	
 	if (conf->groupsnr>0) {
    		setgroups (conf->groupsnr, conf->groups);
+	} else {
+		setgroups(0,NULL);
 	}
   
 	/* final set[ug]id */
