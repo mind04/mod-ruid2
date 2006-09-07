@@ -29,8 +29,8 @@
 
 #define MODULE			"mod_ruid"
 
-#define SUID_DEFAULT_UID	100
-#define SUID_DEFAULT_GID	100
+#define SUID_DEFAULT_UID	48
+#define SUID_DEFAULT_GID	48
 #define SUID_MIN_UID		100
 #define SUID_MIN_GID		100
 
@@ -62,6 +62,8 @@ static void *create_config (apr_pool_t * p, server_rec *s)
 	ruid_config_t *conf = apr_palloc (p, sizeof (*conf));
 
 	conf->ruid_mode=RUID_MODE_STAT;
+	conf->suid_uid=SUID_DEFAULT_UID;
+	conf->suid_gid=SUID_DEFAULT_GID;
 	conf->default_uid=SUID_DEFAULT_UID;
 	conf->default_gid=SUID_DEFAULT_GID;
 	conf->min_uid=SUID_MIN_UID;
@@ -193,7 +195,7 @@ static const command_rec ruid_cmds[] = {
 	AP_INIT_ITERATE ("RGroups", set_groups, NULL, RSRC_CONF, "Set aditional groups"),
 	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (RDefaultUidGid)"),
 	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
-	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, esle set[ug]id to default (User,Group)"),
+	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User,Group)"),
 	{NULL}
 };
 
