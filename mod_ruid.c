@@ -1,5 +1,5 @@
 /*
-   mod_ruid 0.7b1
+   mod_ruid 0.7.1
    Copyright (C) 2009 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -43,7 +43,7 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid"
-#define MODULE_VERSION		"0.7"
+#define MODULE_VERSION		"0.7.1"
 
 #define RUID_DEFAULT_UID	48
 #define RUID_DEFAULT_GID	48
@@ -251,7 +251,7 @@ static const char * set_uidgid (cmd_parms * cmd, void *mconfig, const char *uid,
 /* configure options in httpd.conf */
 static const command_rec ruid_cmds[] = {
 	/* configuration of httpd.conf */
-	AP_INIT_TAKE1 ("RMode", set_mode, NULL, OR_ALL, "stat or config (default stat)"),
+	AP_INIT_TAKE1 ("RMode", set_mode, NULL, RSRC_CONF | ACCESS_CONF, "stat or config (default stat)"),
 	AP_INIT_TAKE1 ("RCoreDump", set_coredump, NULL, RSRC_CONF, "on or off (default off)"),
 	AP_INIT_TAKE1 ("RCoreDumpSize", set_coredumpsize, NULL, RSRC_CONF, "0 for unlimited, or size of coredump (default 0)"),
 	AP_INIT_ITERATE ("RGroups", set_groups, NULL, RSRC_CONF | ACCESS_CONF, "Set aditional groups"),
