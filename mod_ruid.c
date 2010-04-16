@@ -1,6 +1,6 @@
 /*
-   mod_ruid 0.7.1
-   Copyright (C) 2009 Monshouwer Internet Diensten
+   mod_ruid 0.8
+   Copyright (C) 2010 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
 
@@ -43,7 +43,7 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid"
-#define MODULE_VERSION		"0.7.1"
+#define MODULE_VERSION		"0.8"
 
 #define RUID_DEFAULT_UID	48
 #define RUID_DEFAULT_GID	48
@@ -76,7 +76,6 @@ typedef struct
 	gid_t min_gid;
 
 	int coredump;
-	int coredumpsize;
 } ruid_config_t;
 
 module AP_MODULE_DECLARE_DATA ruid_module;
@@ -131,8 +130,8 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 	conf->default_gid=RUID_DEFAULT_GID;
 	conf->min_uid=RUID_MIN_UID;
 	conf->min_gid=RUID_MIN_GID;
+	
 	conf->coredump=0;
-	conf->coredumpsize=0;
 
 	return conf;
 }
@@ -152,36 +151,6 @@ static const char * set_mode (cmd_parms * cmd, void *mconfig, const char *arg)
 	} else {
 		conf->ruid_mode=RUID_MODE_STAT;
 	}
-
-	return NULL;
-}
-
-static const char * set_coredump (cmd_parms * cmd, void *mconfig, const char *arg)
-{
-	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid_module);
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	if (strcasecmp(arg,"on")==0) {
-		conf->coredump=1;
-	}
-
-	return NULL;
-}
-
-static const char * set_coredumpsize (cmd_parms * cmd, void *mconfig, const char *arg)
-{
-	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid_module);
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	conf->coredumpsize=atoi(arg);
 
 	return NULL;
 }
@@ -252,8 +221,6 @@ static const char * set_uidgid (cmd_parms * cmd, void *mconfig, const char *uid,
 static const command_rec ruid_cmds[] = {
 	/* configuration of httpd.conf */
 	AP_INIT_TAKE1 ("RMode", set_mode, NULL, RSRC_CONF | ACCESS_CONF, "stat or config (default stat)"),
-	AP_INIT_TAKE1 ("RCoreDump", set_coredump, NULL, RSRC_CONF, "on or off (default off)"),
-	AP_INIT_TAKE1 ("RCoreDumpSize", set_coredumpsize, NULL, RSRC_CONF, "0 for unlimited, or size of coredump (default 0)"),
 	AP_INIT_ITERATE ("RGroups", set_groups, NULL, RSRC_CONF | ACCESS_CONF, "Set aditional groups"),
 	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (RDefaultUidGid)"),
 	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
@@ -265,28 +232,8 @@ static const command_rec ruid_cmds[] = {
 /* run in post config hook ( we are parent process and we are uid 0) */
 static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server_rec *s)
 {
-	ruid_config_t *conf = ap_get_module_config (s->module_config, &ruid_module);
-
 	/* keep capabilities after setuid */
 	prctl(PR_SET_KEEPCAPS,1);
-	if (conf->coredump) {
-		struct rlimit rlim;
-
-		if (conf->coredumpsize==0) {
-			rlim.rlim_cur=RLIM_INFINITY;
-			rlim.rlim_max=RLIM_INFINITY;
-		} else {
-			rlim.rlim_cur=conf->coredumpsize;
-			rlim.rlim_max=conf->coredumpsize;
-		}
-		setrlimit(RLIMIT_CORE,&rlim);
-	}
-
-	/* if conf->coredump!=0 set httpd process dumpable */
-	if (conf->coredump) {
-		prctl(PR_SET_DUMPABLE,1);
-	}
-
 
 	return OK;
 }
@@ -295,34 +242,22 @@ static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server
 static void ruid_child_init (apr_pool_t *p, server_rec *s)
 {
 	ruid_config_t *conf = ap_get_module_config (s->module_config, &ruid_module);
-	cap_t cap;
-	cap_value_t capval[3];
 	
 	/* add module name to signature */
 	ap_add_version_component(p, MODULE_NAME "/" MODULE_VERSION);
-
-	/* init cap with all zeros */
-	cap=cap_init();
-	capval[0]=CAP_SETUID;
-	capval[1]=CAP_SETGID;
-	capval[2]=CAP_DAC_OVERRIDE;
-	cap_set_flag(cap,CAP_PERMITTED,3,capval,CAP_SET);
-	if (cap_set_proc(cap)!=0) {
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_child_init:cap_set_proc failed", MODULE_NAME);
+	
+	/* check if process is dumpable */
+	if (prctl(PR_GET_DUMPABLE)) {
+		conf->coredump = 1;
 	}
-	cap_free(cap);
-
-	/* if conf->coredump!=0 set httpd process dumpable */
-	if (conf->coredump) {
-		prctl(PR_SET_DUMPABLE,1);
-	}
-
 }
 
 static int ruid_suidback (request_rec * r)
 {
+	ruid_config_t *conf = ap_get_module_config(r->server->module_config, &ruid_module);
+	
 	cap_t cap;
-	cap_value_t capval[3];
+	cap_value_t capval[2];
 
 	cap=cap_get_proc();
 	capval[0]=CAP_SETUID;
@@ -336,12 +271,16 @@ static int ruid_suidback (request_rec * r)
 	setgroups(0,NULL);
 	setgid(unixd_config.group_id);
 	setuid(unixd_config.user_id);
-
+	
+	/* set httpd process dumpable after setuid */
+	if (conf->coredump) {
+		prctl(PR_SET_DUMPABLE,1);
+	}
+	
 	cap=cap_get_proc();
 	capval[0]=CAP_SETUID;
 	capval[1]=CAP_SETGID;
-	cap_set_flag(cap,CAP_EFFECTIVE,3,capval,CAP_CLEAR);
-
+	cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_CLEAR);
 	if (cap_set_proc(cap)!=0) {
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_ruidback:cap_set_proc failed after setuid", MODULE_NAME);
 	}
@@ -373,14 +312,14 @@ static int ruid_uiiii (request_rec * r)
 	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid_module);
 	cap_t cap;
 	cap_value_t capval[3];
-	int gid, uid;
+	int gid, uid, retval;
 
 	cap=cap_get_proc();
 	capval[0]=CAP_SETUID;
 	capval[1]=CAP_SETGID;
 	cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_SET);
 	if (cap_set_proc(cap)!=0) {
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_mainstuff:cap_set_proc failed before setuid", MODULE_NAME);
+		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_uiiii:cap_set_proc failed before setuid", MODULE_NAME);
 	}
 	cap_free(cap);
 
@@ -416,13 +355,20 @@ static int ruid_uiiii (request_rec * r)
 	/* final set[ug]id */
 	if (setgid (gid) != 0)
 	{
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s setgid(%d) failed. getgid=%d getuid=%d", MODULE_NAME, ap_get_server_name (r), r->the_request, dconf->ruid_gid, getgid (), getuid());
-		return HTTP_FORBIDDEN;
+		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s setgid(%d) failed. getgid=%d getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, dconf->ruid_gid, getgid(), getuid());
+		retval = HTTP_FORBIDDEN;
+	} else {
+		retval = DECLINED;
+		if (setuid (uid) != 0)
+		{
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s setuid(%d) failed. getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, dconf->ruid_uid, getuid());
+			retval = HTTP_FORBIDDEN;
+		}
 	}
-	if (setuid (uid) != 0)
-	{
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s setuid(%d) failed. getuid=%d", MODULE_NAME, ap_get_server_name (r), r->the_request, dconf->ruid_uid, getuid ());
-		return HTTP_FORBIDDEN;
+	
+	/* set httpd process dumpable after setuid */
+	if (conf->coredump) {
+		prctl(PR_SET_DUMPABLE,1);
 	}
 
 	/* clear capabilties from effective set */
@@ -431,18 +377,12 @@ static int ruid_uiiii (request_rec * r)
 	capval[1]=CAP_SETGID;
 	capval[2]=CAP_DAC_OVERRIDE;
 	cap_set_flag(cap,CAP_EFFECTIVE,3,capval,CAP_CLEAR);
-
 	if (cap_set_proc(cap)!=0) {
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_mainstuff:cap_set_proc failed after setuid", MODULE_NAME);
+		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_uiiii:cap_set_proc failed after setuid", MODULE_NAME);
 	}
 	cap_free(cap);
 
-	/* if conf->coredump!=0 set httpd process dumpable */
-	if (conf->coredump) {
-		prctl(PR_SET_DUMPABLE,1);
-	}
-
-	return DECLINED;
+	return retval;
 }
 
 static void register_hooks (apr_pool_t * p)
