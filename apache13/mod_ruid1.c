@@ -1,7 +1,7 @@
 /*
    WARNING: this module is beta software.
 
-   mod_ruid1 0.8b
+   mod_ruid1 0.8.1b
    Copyright (C) 2010 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -41,7 +41,7 @@
 
 
 #define MODULE_NAME		"mod_ruid1"
-#define MODULE_VERSION		"0.8b"
+#define MODULE_VERSION		"0.8.1b"
 
 #define RUID_DEFAULT_UID	48
 #define RUID_DEFAULT_GID	48
@@ -225,9 +225,22 @@ static void ruid_init(server_rec *s, pool *p)
 static void ruid_child_init (server_rec *s, pool *p)
 {
 	ruid_config_t *conf = ap_get_module_config (s->module_config, &ruid1_module);
+	cap_t cap;
+	cap_value_t capval[3];
 
 	/* add module name to signature */
 	ap_add_version_component("MODULE_NAME \"/\" MODULE_VERSION");
+	
+	/* init cap with all zeros */
+	cap=cap_init();
+	capval[0]=CAP_SETUID;
+	capval[1]=CAP_SETGID;
+	capval[2]=CAP_DAC_READ_SEARCH;
+	cap_set_flag(cap,CAP_PERMITTED,3,capval,CAP_SET);
+	if (cap_set_proc(cap)!=0) {
+		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_child_init:cap_set_proc failed", MODULE_NAME);
+	}
+	cap_free(cap);
 
 	/* check if process is dumpable */
 	if (prctl(PR_GET_DUMPABLE)) {
@@ -280,7 +293,7 @@ static int ruid_setup (request_rec *r) {
 	cap_value_t capval[1];
 
 	cap=cap_get_proc();
-	capval[0]=CAP_DAC_OVERRIDE;
+	capval[0]=CAP_DAC_READ_SEARCH;
 	cap_set_flag(cap,CAP_EFFECTIVE,1,capval,CAP_SET);
 	if (cap_set_proc(cap)!=0) {
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, "%s CRITICAL ERROR ruid_setup:cap_set_proc failed", MODULE_NAME);
@@ -378,7 +391,7 @@ static int ruid_uiiii (request_rec *r)
 	cap=cap_get_proc();
 	capval[0]=CAP_SETUID;
 	capval[1]=CAP_SETGID;
-	capval[2]=CAP_DAC_OVERRIDE;
+	capval[2]=CAP_DAC_READ_SEARCH;
 	cap_set_flag(cap,CAP_EFFECTIVE,3,capval,CAP_CLEAR);
 	if (cap_set_proc(cap)!=0) {
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, "%s CRITICAL ERROR ruid_uiiii:cap_set_proc failed after setuid", MODULE_NAME);
