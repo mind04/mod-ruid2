@@ -1,4 +1,4 @@
-WTF
+ABOUT
 mod_ruid is suexec module for apache 2.0, based on mod_suid2
 
 -it runs only on linux because afaik only linux has implemented posix 1003.1e capabilities
@@ -30,51 +30,56 @@ CONFIGURE OPTIONS:
  RDefaultUidGid user|#uid group|#gid
 
  RGroups group1 group2 - aditional groups set via setgroups
-
- RCoreDump - on or off, if on, you can have coredumps of httpd after crash (default off)
- RCoreDumpSize - limit size of coredump in bytes, 0 is unlimited (default 0)
+ 
+ RDropCapMode No|Yes - Drop capabilities permanent after set[ug]id (default is No)
+ 
 
 EXAMPLE:
 
-LoadModule ruid_module   modules/mod_ruid.so
-User                     apache
-Group                    apache
-RMode                    stat
-RGroups                  apachetmp
-
-# uncoment if you want coredumps after httpd crash (coredump direcory must have 777 permissions)
-#RCoreDump		on
-#CoreDumpDirectory	/usr/apache/core
+ LoadModule ruid2_module   modules/mod_ruid2.so
+ User                     apache
+ Group                    apache
+ RMode                    stat
+ RGroups                  apachetmp
 
 
-NameVirtualHost 192.168.0.1
-<VirtualHost example.com>
-  ServerAdmin    webmaster@example.com
-  DocumentRoot   /home/example.com/public_html
-  ServerName     example.com
-  ServerAlias    www.example.com
-  RMode          config
-  RUidGid        user1 group1
-  RGroups        apachetmp
-</VirtualHost>
+ NameVirtualHost 192.168.0.1
+ <VirtualHost example.com>
+   ServerAdmin    webmaster@example.com
+   DocumentRoot   /home/example.com/public_html
+   ServerName     example.com
+   ServerAlias    www.example.com
+   RMode          config
+   RUidGid        user1 group1
+   RGroups        apachetmp
+   RDropCapMode   No
 
-<VirtualHost example.net>
-  ServerAdmin    webmaster@example.net
-  DocumentRoot   /home/example.net/public_html
-  ServerName     example.net
-  ServerAlias    www.example.net
-</VirtualHost>
+   <Directory /home/example.com/public_html/dir>
+       RMode stat
+   </Directory>
 
-CHANGELOG
-30.aug.2005 - 0.6 - changed hook for main function (ruid_uiiii) to ap_hook_header_parser and don't stat the file, use finfo structure to get uid/gid (if RMode stat)
-23.oct.2004 - 0.5 - after request sgid/suid back to User and Group
-11.oct.2004 - 0.4 - first release
+   <Directory /home/example.com/public_html/dir/test>
+       RMode config
+       RUidGid user2 group2
+       RGroups groups1
+   </Directory>
 
-LICENCE
-ASL-2.0(Apache Software License)
+   <Directory /home/example.com/public_html/dir/test/123>
+       RUidGid user3 group3
+       RDropCapMode Yes
+   </Directory>
 
-Copyright 2004 by Hideo NAKAMITSU. All rights reserved
-Copyright 2004 by Pavel Stano. All rights reserved
+   <Location /yustadir>
+       RMode config
+       RUidGid user4 user4
+       RGroups groups4
+   </Location>
 
-THANKS
-bon for help with english ;)
+ </VirtualHost>
+
+ <VirtualHost example.net>
+   ServerAdmin    webmaster@example.net
+   DocumentRoot   /home/example.net/public_html
+   ServerName     example.net
+   ServerAlias    www.example.net
+ </VirtualHost>
