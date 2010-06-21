@@ -31,8 +31,6 @@ CONFIGURE OPTIONS:
 
  RGroups group1 group2 - aditional groups set via setgroups
  
- RDropCapMode No|Yes - Drop capabilities permanent after set[ug]id (default is No)
- 
 
 EXAMPLE:
 
@@ -52,7 +50,6 @@ EXAMPLE:
    RMode          config
    RUidGid        user1 group1
    RGroups        apachetmp
-   RDropCapMode   No
 
    <Directory /home/example.com/public_html/dir>
        RMode stat
@@ -66,7 +63,6 @@ EXAMPLE:
 
    <Directory /home/example.com/public_html/dir/test/123>
        RUidGid user3 group3
-       RDropCapMode Yes
    </Directory>
 
    <Location /yustadir>

@@ -58,7 +58,6 @@
 
 #define RUID_CAP_MODE_DROP	0
 #define RUID_CAP_MODE_KEEP	1
-#define RUID_CAP_MODE_UNDEFINED 2
 
 #define UNSET			-1
 
@@ -71,7 +70,6 @@ typedef struct
 	gid_t ruid_gid;
 	gid_t groups[RUID_MAXGROUPS];
 	int8_t groupsnr;
-	int8_t ruid_cap_mode;
 } ruid_dir_config_t;
 
 
@@ -81,12 +79,13 @@ typedef struct
 	gid_t default_gid;
 	uid_t min_uid;
 	gid_t min_gid;
-
-	int coredump;
 } ruid_config_t;
 
 
 module AP_MODULE_DECLARE_DATA ruid2_module;
+
+
+static int coredump, cap_mode;
 
 
 static void *create_dir_config(apr_pool_t *p, char *d)
@@ -97,7 +96,6 @@ static void *create_dir_config(apr_pool_t *p, char *d)
 	dconf->ruid_uid=UNSET;
 	dconf->ruid_gid=UNSET;
 	dconf->groupsnr=0;
-	dconf->ruid_cap_mode=RUID_CAP_MODE_UNDEFINED;
 
 	return dconf;
 }
@@ -129,11 +127,6 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 			conf->groupsnr = parent->groupsnr;
 		}
 	}
-	if (child->ruid_cap_mode == RUID_CAP_MODE_UNDEFINED) {
-		conf->ruid_cap_mode = parent->ruid_cap_mode;
-	} else {
-		conf->ruid_cap_mode = child->ruid_cap_mode;
-	}
 
 	return conf;
 }
@@ -147,8 +140,6 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 	conf->default_gid=RUID_DEFAULT_GID;
 	conf->min_uid=RUID_MIN_UID;
 	conf->min_gid=RUID_MIN_GID;
-
-	conf->coredump=0;
 
 	return conf;
 }
@@ -239,21 +230,6 @@ static const char * set_uidgid (cmd_parms * cmd, void *mconfig, const char *uid,
 }
 
 
-static const char * set_cap_mode (cmd_parms *cmd, void *mconfig, int flag)
-{
-	ruid_dir_config_t *conf = (ruid_dir_config_t *) mconfig;
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	conf->ruid_cap_mode = (flag ? RUID_CAP_MODE_DROP : RUID_CAP_MODE_KEEP);
-
-	return NULL;
-}
-
-
 /* configure options in httpd.conf */
 static const command_rec ruid_cmds[] = {
 
@@ -262,7 +238,6 @@ static const command_rec ruid_cmds[] = {
 	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (RDefaultUidGid)"),
 	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
 	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User,Group)"),
-	AP_INIT_FLAG ("RDropCapMode", set_cap_mode, NULL, RSRC_CONF | ACCESS_CONF, "Drop capabilities permanent after set[ug]id"),
 	{NULL}
 };
 
@@ -280,7 +255,6 @@ static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server
 /* run after child init we are uid User and gid Group */
 static void ruid_child_init (apr_pool_t *p, server_rec *s)
 {
-	ruid_config_t *conf = ap_get_module_config (s->module_config, &ruid2_module);
 	cap_t cap;
 	cap_value_t capval[3];
 
@@ -297,23 +271,23 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
     		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_child_init:cap_set_proc failed", MODULE_NAME);
 	}
 	cap_free(cap);
-
+	
+	/* MaxRequestsPerChild MUST be 1 to enable drop capability mode */
+	cap_mode = (ap_max_requests_per_child == 1 ? RUID_CAP_MODE_DROP : RUID_CAP_MODE_KEEP);
+		
 	/* check if process is dumpable */
 	if (prctl(PR_GET_DUMPABLE)) {
-		conf->coredump = 1;
+		coredump = 1;
 	}
 }
 
 
 static int ruid_suidback (request_rec *r)
 {
-	ruid_config_t *conf = ap_get_module_config(r->server->module_config, &ruid2_module);
-	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
-
 	cap_t cap;
 	cap_value_t capval[2];
 	
-	if (dconf->ruid_cap_mode != RUID_CAP_MODE_DROP) {
+	if (cap_mode == RUID_CAP_MODE_KEEP) {
 
 		cap=cap_get_proc();
 		capval[0]=CAP_SETUID;
@@ -329,7 +303,7 @@ static int ruid_suidback (request_rec *r)
 		setuid(unixd_config.user_id);
 	
 		/* set httpd process dumpable after setuid */
-		if (conf->coredump) {
+		if (coredump) {
 			prctl(PR_SET_DUMPABLE,1);
 		}
 
@@ -427,7 +401,7 @@ static int ruid_uiiii (request_rec *r)
 	}
 	
 	/* set httpd process dumpable after setuid */
-	if (conf->coredump) {
+	if (coredump) {
 		prctl(PR_SET_DUMPABLE,1);
 	}
 
@@ -438,12 +412,9 @@ static int ruid_uiiii (request_rec *r)
 	capval[2]=CAP_DAC_READ_SEARCH;
 	cap_set_flag(cap,CAP_EFFECTIVE,3,capval,CAP_CLEAR);
 
-	if (dconf->ruid_cap_mode == RUID_CAP_MODE_DROP) {
+	if (cap_mode == RUID_CAP_MODE_DROP) {
 		/* clear capabilities from permitted set (permanent) */
 		cap_set_flag(cap,CAP_PERMITTED,3,capval,CAP_CLEAR);
-
-		/* kill child after this request */
-		ap_max_requests_per_child = 1;
 	}
 		                            
 	if (cap_set_proc(cap)!=0) {
