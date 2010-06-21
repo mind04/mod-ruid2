@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.8.1
+   mod_ruid2 0.8.2
    Copyright (C) 2010 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -43,7 +43,7 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.8.1"
+#define MODULE_VERSION		"0.8.2"
 
 #define RUID_DEFAULT_UID	48
 #define RUID_DEFAULT_GID	48
@@ -56,6 +56,10 @@
 #define RUID_MODE_CONF		1
 #define RUID_MODE_UNDEFINED	2
 
+#define RUID_CAP_MODE_DROP	0
+#define RUID_CAP_MODE_KEEP	1
+#define RUID_CAP_MODE_UNDEFINED 2
+
 #define UNSET			-1
 
 
@@ -67,6 +71,7 @@ typedef struct
 	gid_t ruid_gid;
 	gid_t groups[RUID_MAXGROUPS];
 	int8_t groupsnr;
+	int8_t ruid_cap_mode;
 } ruid_dir_config_t;
 
 
@@ -92,6 +97,7 @@ static void *create_dir_config(apr_pool_t *p, char *d)
 	dconf->ruid_uid=UNSET;
 	dconf->ruid_gid=UNSET;
 	dconf->groupsnr=0;
+	dconf->ruid_cap_mode=RUID_CAP_MODE_UNDEFINED;
 
 	return dconf;
 }
@@ -122,6 +128,11 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 			memcpy(conf->groups, parent->groups, sizeof(parent->groups));
 			conf->groupsnr = parent->groupsnr;
 		}
+	}
+	if (child->ruid_cap_mode == RUID_CAP_MODE_UNDEFINED) {
+		conf->ruid_cap_mode = parent->ruid_cap_mode;
+	} else {
+		conf->ruid_cap_mode = child->ruid_cap_mode;
 	}
 
 	return conf;
@@ -228,6 +239,21 @@ static const char * set_uidgid (cmd_parms * cmd, void *mconfig, const char *uid,
 }
 
 
+static const char * set_cap_mode (cmd_parms *cmd, void *mconfig, int flag)
+{
+	ruid_dir_config_t *conf = (ruid_dir_config_t *) mconfig;
+	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
+
+	if (err != NULL) {
+		return err;
+	}
+
+	conf->ruid_cap_mode = (flag ? RUID_CAP_MODE_DROP : RUID_CAP_MODE_KEEP);
+
+	return NULL;
+}
+
+
 /* configure options in httpd.conf */
 static const command_rec ruid_cmds[] = {
 
@@ -236,6 +262,7 @@ static const command_rec ruid_cmds[] = {
 	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (RDefaultUidGid)"),
 	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
 	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User,Group)"),
+	AP_INIT_FLAG ("RDropCapMode", set_cap_mode, NULL, RSRC_CONF | ACCESS_CONF, "Drop capabilities permanent after set[ug]id"),
 	{NULL}
 };
 
@@ -281,36 +308,40 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 static int ruid_suidback (request_rec *r)
 {
 	ruid_config_t *conf = ap_get_module_config(r->server->module_config, &ruid2_module);
+	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
 
 	cap_t cap;
 	cap_value_t capval[2];
-
-	cap=cap_get_proc();
-	capval[0]=CAP_SETUID;
-	capval[1]=CAP_SETGID;
-	cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_SET);
-	if (cap_set_proc(cap)!=0) {
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_ruidback:cap_set_proc failed before setuid", MODULE_NAME);
-	}
-	cap_free(cap);
-
-	setgroups(0,NULL);
-	setgid(unixd_config.group_id);
-	setuid(unixd_config.user_id);
 	
-	/* set httpd process dumpable after setuid */
-	if (conf->coredump) {
-		prctl(PR_SET_DUMPABLE,1);
-	}
+	if (dconf->ruid_cap_mode != RUID_CAP_MODE_DROP) {
 
-	cap=cap_get_proc();
-	capval[0]=CAP_SETUID;
-	capval[1]=CAP_SETGID;
-	cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_CLEAR);
-	if (cap_set_proc(cap)!=0) {
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_ruidback:cap_set_proc failed after setuid", MODULE_NAME);
+		cap=cap_get_proc();
+		capval[0]=CAP_SETUID;
+		capval[1]=CAP_SETGID;
+		cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_SET);
+		if (cap_set_proc(cap)!=0) {
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_ruidback:cap_set_proc failed before setuid", MODULE_NAME);
+		}
+		cap_free(cap);
+
+		setgroups(0,NULL);
+		setgid(unixd_config.group_id);
+		setuid(unixd_config.user_id);
+	
+		/* set httpd process dumpable after setuid */
+		if (conf->coredump) {
+			prctl(PR_SET_DUMPABLE,1);
+		}
+
+		cap=cap_get_proc();
+		capval[0]=CAP_SETUID;
+		capval[1]=CAP_SETGID;
+		cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_CLEAR);
+		if (cap_set_proc(cap)!=0) {
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_ruidback:cap_set_proc failed after setuid", MODULE_NAME);
+		}
+		cap_free(cap);
 	}
-	cap_free(cap);
 
 	return DECLINED;
 }
@@ -338,6 +369,7 @@ static int ruid_uiiii (request_rec *r)
 {
 	ruid_config_t *conf = ap_get_module_config(r->server->module_config, &ruid2_module);
 	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
+
 	int retval = DECLINED;
 	cap_t cap;
 	cap_value_t capval[3];
@@ -405,6 +437,15 @@ static int ruid_uiiii (request_rec *r)
 	capval[1]=CAP_SETGID;
 	capval[2]=CAP_DAC_READ_SEARCH;
 	cap_set_flag(cap,CAP_EFFECTIVE,3,capval,CAP_CLEAR);
+
+	if (dconf->ruid_cap_mode == RUID_CAP_MODE_DROP) {
+		/* clear capabilities from permitted set (permanent) */
+		cap_set_flag(cap,CAP_PERMITTED,3,capval,CAP_CLEAR);
+
+		/* kill child after this request */
+		ap_max_requests_per_child = 1;
+	}
+		                            
 	if (cap_set_proc(cap)!=0) {
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_uiiii:cap_set_proc failed after setuid", MODULE_NAME);
 	}
