@@ -276,9 +276,7 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 	cap_mode = (ap_max_requests_per_child == 1 ? RUID_CAP_MODE_DROP : RUID_CAP_MODE_KEEP);
 		
 	/* check if process is dumpable */
-	if (prctl(PR_GET_DUMPABLE)) {
-		coredump = 1;
-	}
+	coredump = prctl(PR_GET_DUMPABLE);
 }
 
 
