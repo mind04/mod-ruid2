@@ -31,6 +31,8 @@ CONFIGURE OPTIONS:
 
  RGroups group1 group2 - aditional groups set via setgroups
  
+ RDocumentChrRoot - Set chroot directory and the document root inside
+ 
 
 EXAMPLE:
 
@@ -39,12 +41,12 @@ EXAMPLE:
  Group                    apache
  RMode                    stat
  RGroups                  apachetmp
-
+ RDocumentChRoot          /home /example.com/public_html
 
  NameVirtualHost 192.168.0.1
  <VirtualHost example.com>
    ServerAdmin    webmaster@example.com
-   DocumentRoot   /home/example.com/public_html
+   RDocumentChRoot /home /example.com/public_html
    ServerName     example.com
    ServerAlias    www.example.com
    RMode          config

@@ -1,6 +1,6 @@
 Summary: Run all httpd process under user's access right.
 Name: mod_ruid2
-Version: 0.8.2
+Version: 0.9
 Release: 1%{dist}
 Group: System Environment/Daemons
 URL: http://sourceforge.net/projects/mod-ruid/
@@ -47,6 +47,10 @@ install -m 644 ruid2.conf \
 
 
 %changelog
+* Wed Jun 23 2010 Kees Monshouwer <km|monshouwer_com> 0.9-1
+- Added chroot functionality 
+- Update to 0.9
+
 * Mon Jun 21 2010 Kees Monshouwer <km|monshouwer_com> 0.8.2-1
 - Added drop capability mode to drop capabilities permanent after set[ug]id
 - Update to 0.8.2

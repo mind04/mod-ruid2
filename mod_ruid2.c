@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.8.2
+   mod_ruid2 0.9
    Copyright (C) 2010 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -26,6 +26,8 @@
    - /usr/apache/bin/apxs -a -i -l cap -c mod_ruid2.c
 */
 
+#define CORE_PRIVATE
+
 #include "apr_strings.h"
 #include "apr_md5.h"
 #include "apr_file_info.h"
@@ -43,7 +45,7 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.8.2"
+#define MODULE_VERSION		"0.9"
 
 #define RUID_DEFAULT_UID	48
 #define RUID_DEFAULT_GID	48
@@ -79,13 +81,16 @@ typedef struct
 	gid_t default_gid;
 	uid_t min_uid;
 	gid_t min_gid;
+	const char *chroot_dir;
+	const char *document_root;
 } ruid_config_t;
 
 
 module AP_MODULE_DECLARE_DATA ruid2_module;
 
 
-static int coredump, cap_mode;
+static int coredump, cap_mode, chroot_root;
+static const char *old_root;
 
 
 static void *create_dir_config(apr_pool_t *p, char *d)
@@ -140,6 +145,8 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 	conf->default_gid=RUID_DEFAULT_GID;
 	conf->min_uid=RUID_MIN_UID;
 	conf->min_gid=RUID_MIN_GID;
+	conf->chroot_dir=NULL;
+	conf->document_root=NULL;
 
 	return conf;
 }
@@ -230,6 +237,22 @@ static const char * set_uidgid (cmd_parms * cmd, void *mconfig, const char *uid,
 }
 
 
+static const char * set_documentchroot (cmd_parms * cmd, void *mconfig, const char *chroot_dir, const char *document_root)
+{
+	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
+	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
+
+	if (err != NULL) {
+		return err;
+	}
+
+	conf->chroot_dir = chroot_dir;
+	conf->document_root = document_root;
+	
+	return NULL;
+}
+                                                                        
+
 /* configure options in httpd.conf */
 static const command_rec ruid_cmds[] = {
 
@@ -238,6 +261,7 @@ static const command_rec ruid_cmds[] = {
 	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (RDefaultUidGid)"),
 	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
 	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User,Group)"),
+	AP_INIT_TAKE2 ("RDocumentChRoot", set_documentchroot, NULL, RSRC_CONF, "Set chroot directory and the document root inside"),
 	{NULL}
 };
 
@@ -252,26 +276,59 @@ static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server
 }
 
 
+/* child cleanup function */
+static apr_status_t ruid_child_exit(void *data)
+{
+	int fd = (int)((long)data);
+	
+	if (close(fd) < 0) {
+		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR closing root file descriptor (%d) failed", MODULE_NAME, fd);
+		return APR_EGENERAL;
+	}
+	                                        
+	return APR_SUCCESS;
+}
+
+
 /* run after child init we are uid User and gid Group */
 static void ruid_child_init (apr_pool_t *p, server_rec *s)
 {
+	ruid_config_t *conf;
 	cap_t cap;
-	cap_value_t capval[3];
+	cap_value_t capval[4];
 
 	/* add module name to signature */
 	ap_add_version_component(p, MODULE_NAME "/" MODULE_VERSION);
 	
+	/* setup chroot jailbreak */
+	chroot_root = -1;
+	while (s) {
+		conf = ap_get_module_config(s->module_config, &ruid2_module);
+		if (conf->chroot_dir) {
+			if ((chroot_root = open("/.", O_RDONLY)) < 0) {
+				ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR opening root file descriptor failed (%s)", MODULE_NAME, strerror(errno));
+			} else {
+				/* register cleanup function */
+				apr_pool_cleanup_register(p, (void*)((long)chroot_root), ruid_child_exit, apr_pool_cleanup_null);
+			}
+			s = NULL;
+		} else {
+	    	        s = s->next;
+	    	}
+	}
+
 	/* init cap with all zeros */
-	cap=cap_init();
-	capval[0]=CAP_SETUID;
-	capval[1]=CAP_SETGID;
-	capval[2]=CAP_DAC_READ_SEARCH;
-	cap_set_flag(cap,CAP_PERMITTED,3,capval,CAP_SET);
-	if (cap_set_proc(cap)!=0) {
-    		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_child_init:cap_set_proc failed", MODULE_NAME);
+	cap = cap_init();
+	capval[0] = CAP_SETUID;
+	capval[1] = CAP_SETGID;
+	capval[2] = CAP_DAC_READ_SEARCH;
+	capval[3] = CAP_SYS_CHROOT;
+	cap_set_flag(cap, CAP_PERMITTED, (chroot_root >= 0 ? 4 : 3), capval, CAP_SET);
+	if (cap_set_proc(cap) != 0) {
+    		ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_child_init:cap_set_proc failed", MODULE_NAME);
 	}
 	cap_free(cap);
-	
+
 	/* MaxRequestsPerChild MUST be 1 to enable drop capability mode */
 	cap_mode = (ap_max_requests_per_child == 1 ? RUID_CAP_MODE_DROP : RUID_CAP_MODE_KEEP);
 		
@@ -282,15 +339,19 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 
 static int ruid_suidback (request_rec *r)
 {
+	ruid_config_t *conf = ap_get_module_config (r->server->module_config, &ruid2_module);
+	core_server_config *core = (core_server_config *) ap_get_module_config(r->server->module_config, &core_module);
+
 	cap_t cap;
-	cap_value_t capval[2];
+	cap_value_t capval[3];
 	
 	if (cap_mode == RUID_CAP_MODE_KEEP) {
 
 		cap=cap_get_proc();
 		capval[0]=CAP_SETUID;
 		capval[1]=CAP_SETGID;
-		cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_SET);
+		capval[2]=CAP_SYS_CHROOT;
+		cap_set_flag(cap, CAP_EFFECTIVE, (conf->chroot_dir ? 3 : 2), capval, CAP_SET);
 		if (cap_set_proc(cap)!=0) {
 			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_ruidback:cap_set_proc failed before setuid", MODULE_NAME);
 		}
@@ -304,11 +365,24 @@ static int ruid_suidback (request_rec *r)
 		if (coredump) {
 			prctl(PR_SET_DUMPABLE,1);
 		}
+		
+		/* jail break */
+		if (conf->chroot_dir) {
+			if (fchdir(chroot_root) < 0) {
+				ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s failed to fchdir to root dir (%d) (%s)", MODULE_NAME, chroot_root, strerror(errno));
+			} else {
+				if (chroot(".") != 0) {
+					ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s jail break failed", MODULE_NAME);
+				}
+			}
+			core->ap_document_root = old_root;
+		}
 
 		cap=cap_get_proc();
 		capval[0]=CAP_SETUID;
 		capval[1]=CAP_SETGID;
-		cap_set_flag(cap,CAP_EFFECTIVE,2,capval,CAP_CLEAR);
+		capval[2]=CAP_SYS_CHROOT;
+		cap_set_flag(cap, CAP_EFFECTIVE, 3, capval, CAP_CLEAR);
 		if (cap_set_proc(cap)!=0) {
 			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_ruidback:cap_set_proc failed after setuid", MODULE_NAME);
 		}
@@ -321,16 +395,46 @@ static int ruid_suidback (request_rec *r)
 
 static int ruid_setup (request_rec *r) {
 
+	ruid_config_t *conf = ap_get_module_config (r->server->module_config,  &ruid2_module);
+	core_server_config *core = (core_server_config *) ap_get_module_config(r->server->module_config, &core_module);
+
 	cap_t cap;
-	cap_value_t capval[1];
+	cap_value_t capval[2];
 
 	cap=cap_get_proc();
 	capval[0]=CAP_DAC_READ_SEARCH;
-	cap_set_flag(cap,CAP_EFFECTIVE,1,capval,CAP_SET);
+	capval[1]=CAP_SYS_CHROOT;
+	cap_set_flag(cap, CAP_EFFECTIVE, (conf->chroot_dir ? 2 : 1), capval, CAP_SET);
 	if (cap_set_proc(cap)!=0) {
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_setup:cap_set_proc failed", MODULE_NAME);
 	}
 	cap_free(cap);
+	
+	/* do chroot trick only if chrootdir is defined */
+	if (conf->chroot_dir)
+	{
+		old_root = ap_document_root(r);
+		core->ap_document_root = conf->document_root;
+		if (chdir(conf->chroot_dir) != 0)
+		{
+			ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL,"%s %s %s chdir to %s failed", MODULE_NAME, ap_get_server_name (r), r->the_request, conf->chroot_dir);
+			return HTTP_FORBIDDEN;
+		}
+		if (chroot(conf->chroot_dir) != 0)
+		{
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL,"%s %s %s chroot to %s failed", MODULE_NAME, ap_get_server_name (r), r->the_request, conf->chroot_dir);
+			return HTTP_FORBIDDEN;
+		}
+	
+		cap = cap_get_proc();
+		capval[0] = CAP_SYS_CHROOT;
+		cap_set_flag(cap, CAP_EFFECTIVE, 1, capval, CAP_CLEAR);
+		if (cap_set_proc(cap) != 0 )
+		{
+			ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR chruid_setup:cap_set_proc failed", MODULE_NAME);
+		}
+		cap_free(cap);
+	}
 
 	return DECLINED;
 }
@@ -344,7 +448,7 @@ static int ruid_uiiii (request_rec *r)
 
 	int retval = DECLINED;
 	cap_t cap;
-	cap_value_t capval[3];
+	cap_value_t capval[4];
 	int gid, uid;
 
 	cap=cap_get_proc();
@@ -412,7 +516,8 @@ static int ruid_uiiii (request_rec *r)
 
 	if (cap_mode == RUID_CAP_MODE_DROP) {
 		/* clear capabilities from permitted set (permanent) */
-		cap_set_flag(cap,CAP_PERMITTED,3,capval,CAP_CLEAR);
+		capval[3]=CAP_SYS_CHROOT;
+		cap_set_flag(cap,CAP_PERMITTED,4,capval,CAP_CLEAR);
 	}
 		                            
 	if (cap_set_proc(cap)!=0) {
