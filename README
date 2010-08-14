@@ -1,5 +1,5 @@
 ABOUT
-mod_ruid is suexec module for apache 2.0, based on mod_suid2
+mod_ruid2 is a suexec module for apache 2.0, based on mod_ruid and mod_suid2
 
 -it runs only on linux because afaik only linux has implemented posix 1003.1e capabilities
 -it has better performance than mod_suid2 because it doesn`t need to kill httpd children
@@ -18,7 +18,7 @@ mod_ruid is suexec module for apache 2.0, based on mod_suid2
 
 INSTALL
  1. download and install latest libcap from here
- 2. run /apachedir/bin/apxs -a -i -l cap -c mod_ruid.c
+ 2. run /apachedir/bin/apxs -a -i -l cap -c mod_ruid2.c
  3. configure httpd.conf
  4. restart apache
 

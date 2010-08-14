@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9
+   mod_ruid2 0.9.1
    Copyright (C) 2010 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -45,7 +45,7 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9"
+#define MODULE_VERSION		"0.9.1"
 
 #define RUID_DEFAULT_UID	48
 #define RUID_DEFAULT_GID	48
@@ -124,7 +124,7 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 	} else {
 		conf->ruid_uid = (child->ruid_uid == UNSET) ? parent->ruid_uid : child->ruid_uid;
 		conf->ruid_gid = (child->ruid_gid == UNSET) ? parent->ruid_gid : child->ruid_gid;
-		if (child->groupsnr > 0) {
+		if (child->groupsnr != 0) {
 			memcpy(conf->groups, child->groups, sizeof(child->groups));
 			conf->groupsnr = child->groupsnr;
 		} else {
@@ -181,7 +181,11 @@ static const char * set_groups (cmd_parms * cmd, void *mconfig, const char *arg)
 		return err;
 	}
 
-	if (conf->groupsnr<RUID_MAXGROUPS) {
+	if (strcasecmp(arg,"@none")==0) {
+	    conf->groupsnr=-1;
+	}
+	
+	if (conf->groupsnr<RUID_MAXGROUPS && conf->groupsnr>-1) {
 		conf->groups[conf->groupsnr++] = ap_gname2id (arg);
 	}
 
@@ -449,7 +453,7 @@ static int ruid_uiiii (request_rec *r)
 	int retval = DECLINED;
 	cap_t cap;
 	cap_value_t capval[4];
-	int gid, uid;
+	int gid, uid, i;
 
 	cap=cap_get_proc();
 	capval[0]=CAP_SETUID;
@@ -484,6 +488,11 @@ static int ruid_uiiii (request_rec *r)
 	}
 
 	if (dconf->groupsnr>0) {
+		for (i=0; i < dconf->groupsnr; i++) {
+			if (dconf->groups[i] < conf->min_gid) {
+				dconf->groups[i]=conf->default_gid;
+			}
+		} 	
 		setgroups(dconf->groupsnr, dconf->groups);
 	} else {
 		setgroups(0, NULL);
