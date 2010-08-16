@@ -62,6 +62,7 @@
 #define RUID_CAP_MODE_KEEP	1
 
 #define UNSET			-1
+#define SET			1
 
 
 typedef struct
@@ -81,6 +82,7 @@ typedef struct
 	gid_t default_gid;
 	uid_t min_uid;
 	gid_t min_gid;
+	int8_t stat_used;
 	const char *chroot_dir;
 	const char *document_root;
 } ruid_config_t;
@@ -89,7 +91,7 @@ typedef struct
 module AP_MODULE_DECLARE_DATA ruid2_module;
 
 
-static int coredump, cap_mode, chroot_root;
+static int coredump, cap_mode, stat_mode, chroot_root;
 static const char *old_root;
 
 
@@ -145,6 +147,7 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 	conf->default_gid=RUID_DEFAULT_GID;
 	conf->min_uid=RUID_MIN_UID;
 	conf->min_gid=RUID_MIN_GID;
+	conf->stat_used=UNSET;
 	conf->chroot_dir=NULL;
 	conf->document_root=NULL;
 
@@ -155,7 +158,8 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 /* configure option functions */
 static const char * set_mode (cmd_parms * cmd, void *mconfig, const char *arg)
 {
-	ruid_dir_config_t *conf = (ruid_dir_config_t *) mconfig;
+	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
+	ruid_dir_config_t *dir_conf = (ruid_dir_config_t *) mconfig;
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
 
 	if (err != NULL) {
@@ -163,9 +167,10 @@ static const char * set_mode (cmd_parms * cmd, void *mconfig, const char *arg)
 	}
 
 	if (strcasecmp(arg,"config")==0) {
-		conf->ruid_mode=RUID_MODE_CONF;
+		dir_conf->ruid_mode=RUID_MODE_CONF;
 	} else {
-		conf->ruid_mode=RUID_MODE_STAT;
+		dir_conf->ruid_mode=RUID_MODE_STAT;
+		conf->stat_used=SET;
 	}
 
 	return NULL;
@@ -298,36 +303,48 @@ static apr_status_t ruid_child_exit(void *data)
 static void ruid_child_init (apr_pool_t *p, server_rec *s)
 {
 	ruid_config_t *conf;
+	int ncap;
 	cap_t cap;
 	cap_value_t capval[4];
 
 	/* add module name to signature */
 	ap_add_version_component(p, MODULE_NAME "/" MODULE_VERSION);
 	
-	/* setup chroot jailbreak */
-	chroot_root = -1;
+	stat_mode = UNSET;
+	chroot_root = UNSET;
 	while (s) {
 		conf = ap_get_module_config(s->module_config, &ruid2_module);
-		if (conf->chroot_dir) {
+		
+		/* detect stat mode usage */
+		if (conf->stat_used == SET && stat_mode == UNSET) {
+			stat_mode = SET;
+		}
+		
+		/* setup chroot jailbreak */
+		if (conf->chroot_dir && chroot_root == UNSET) {
 			if ((chroot_root = open("/.", O_RDONLY)) < 0) {
 				ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR opening root file descriptor failed (%s)", MODULE_NAME, strerror(errno));
 			} else {
 				/* register cleanup function */
 				apr_pool_cleanup_register(p, (void*)((long)chroot_root), ruid_child_exit, apr_pool_cleanup_null);
 			}
+		}
+		
+		if (stat_mode != UNSET && chroot_root != UNSET) {
 			s = NULL;
 		} else {
 	    	        s = s->next;
 	    	}
 	}
 
+	ncap = 2;
 	/* init cap with all zeros */
 	cap = cap_init();
 	capval[0] = CAP_SETUID;
 	capval[1] = CAP_SETGID;
-	capval[2] = CAP_DAC_READ_SEARCH;
-	capval[3] = CAP_SYS_CHROOT;
-	cap_set_flag(cap, CAP_PERMITTED, (chroot_root >= 0 ? 4 : 3), capval, CAP_SET);
+	if (stat_mode == SET) capval[ncap++] = CAP_DAC_READ_SEARCH;
+	if (chroot_root != UNSET) capval[ncap++] = CAP_SYS_CHROOT;
+	cap_set_flag(cap, CAP_PERMITTED, ncap, capval, CAP_SET);
 	if (cap_set_proc(cap) != 0) {
     		ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_child_init:cap_set_proc failed", MODULE_NAME);
 	}
@@ -402,17 +419,20 @@ static int ruid_setup (request_rec *r) {
 	ruid_config_t *conf = ap_get_module_config (r->server->module_config,  &ruid2_module);
 	core_server_config *core = (core_server_config *) ap_get_module_config(r->server->module_config, &core_module);
 
+	int ncap=0;
 	cap_t cap;
 	cap_value_t capval[2];
 
-	cap=cap_get_proc();
-	capval[0]=CAP_DAC_READ_SEARCH;
-	capval[1]=CAP_SYS_CHROOT;
-	cap_set_flag(cap, CAP_EFFECTIVE, (conf->chroot_dir ? 2 : 1), capval, CAP_SET);
-	if (cap_set_proc(cap)!=0) {
-		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_setup:cap_set_proc failed", MODULE_NAME);
-	}
-	cap_free(cap);
+	if (stat_mode == SET) capval[ncap++] = CAP_DAC_READ_SEARCH;
+	if (chroot_root != UNSET) capval[ncap++] = CAP_SYS_CHROOT;
+	if (ncap) {
+		cap=cap_get_proc();
+		cap_set_flag(cap, CAP_EFFECTIVE, ncap, capval, CAP_SET);
+		if (cap_set_proc(cap)!=0) {
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR ruid_setup:cap_set_proc failed", MODULE_NAME);
+		}
+		cap_free(cap);
+	}	
 	
 	/* do chroot trick only if chrootdir is defined */
 	if (conf->chroot_dir)
