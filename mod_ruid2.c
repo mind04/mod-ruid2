@@ -383,7 +383,7 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	int gid, uid, i;
 
 	cap_t cap;
-	cap_value_t capval[3];
+	cap_value_t capval[4];
 
 	cap=cap_get_proc();
 	capval[0]=CAP_SETUID;
