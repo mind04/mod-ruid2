@@ -1,6 +1,6 @@
 Summary: Run all httpd process under user's access right.
 Name: mod_ruid2
-Version: 0.9
+Version: 0.9.3
 Release: 1%{dist}
 Group: System Environment/Daemons
 URL: http://sourceforge.net/projects/mod-ruid/
@@ -47,6 +47,17 @@ install -m 644 ruid2.conf \
 
 
 %changelog
+* Tue Jan 04 2011 Kees Monshouwer <km|monshouwer.com> 0.9.3-1
+- Update to 0.9.3
+- Fixed: chroot issue with sub-requests caused by mod_rewrite 
+
+* Tue Dec 20 2010 Kees Monshouwer <km|monshouwer_com> 0.9.2-1
+- Update to 0.9.2
+- Fixed: array subscript was above array bounds in ruid_set_perm
+
+* Mon Oct 18 2010 Kees Monshouwer <km|monshouwer_com> 0.9.1-1
+- Update to 0.9.1
+
 * Wed Jun 23 2010 Kees Monshouwer <km|monshouwer_com> 0.9-1
 - Added chroot functionality 
 - Update to 0.9

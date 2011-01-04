@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9.1
+   mod_ruid2 0.9.3
    Copyright (C) 2010 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -45,7 +45,7 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.1"
+#define MODULE_VERSION		"0.9.3"
 
 #define RUID_DEFAULT_UID	48
 #define RUID_DEFAULT_GID	48
@@ -466,6 +466,12 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 
 /* run in post_read_request hook */
 static int ruid_setup (request_rec *r) {
+
+	 /* We decline when we are in a subrequest. The ruid_setup function was
+	  * already executed in the main request. */
+	if (!ap_is_initial_req(r)) {
+		return DECLINED;
+	}
 
 	ruid_config_t *conf = ap_get_module_config (r->server->module_config,  &ruid2_module);
 	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
