@@ -519,9 +519,6 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	}
 	cap_free(cap);
 
-	/* register suidback function */
-	apr_pool_cleanup_register(r->pool, r, ruid_suidback, apr_pool_cleanup_null);
-
 	return retval;
 }
 
@@ -580,6 +577,9 @@ static int ruid_setup (request_rec *r) {
 		cap_free(cap);
 	}
 	
+	/* register suidback function */
+	apr_pool_cleanup_register(r->pool, r, ruid_suidback, apr_pool_cleanup_null);
+		
 	if (dconf->ruid_mode==RUID_MODE_CONF)
 	{
 		return ruid_set_perm(r, __func__);
@@ -592,14 +592,7 @@ static int ruid_setup (request_rec *r) {
 /* run in map_to_storage hook */
 static int ruid_uiiii (request_rec *r)
 {
-	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
-	
-	if (dconf->ruid_mode==RUID_MODE_STAT)
-	{
-	        return ruid_set_perm(r, __func__);
-	} else {
-		return DECLINED;
-	}
+        return ruid_set_perm(r, __func__);
 }
 
 
