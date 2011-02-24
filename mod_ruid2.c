@@ -438,8 +438,9 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	ruid_config_t *conf = ap_get_module_config(r->server->module_config, &ruid2_module);
 	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
 	
-	int retval = DECLINED;
-	int gid, uid, i;
+	int retval = DECLINED, i;
+	gid_t gid;
+	uid_t uid;
 
 	cap_t cap;
 	cap_value_t capval[4];
@@ -463,12 +464,12 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 		gid=dconf->ruid_gid;
 		uid=dconf->ruid_uid;
 	}
-	
+
 	/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
-	if (uid < conf->min_uid) {
+	if (uid < conf->min_uid || uid == UNSET) {
 		uid=conf->default_uid;
 	}
-	if (gid < conf->min_gid) {
+	if (gid < conf->min_gid || gid == UNSET){
 		gid=conf->default_gid;
 	}
 
@@ -600,7 +601,7 @@ static void register_hooks (apr_pool_t *p)
 {
 	ap_hook_post_config (ruid_init, NULL, NULL, APR_HOOK_MIDDLE);
 	ap_hook_child_init (ruid_child_init, NULL, NULL, APR_HOOK_MIDDLE);
-	ap_hook_post_read_request(ruid_setup, NULL, NULL,APR_HOOK_MIDDLE);
+	ap_hook_post_read_request(ruid_setup, NULL, NULL, APR_HOOK_MIDDLE);
 	ap_hook_header_parser(ruid_uiiii, NULL, NULL, APR_HOOK_FIRST);
 }
 
