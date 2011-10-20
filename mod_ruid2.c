@@ -187,9 +187,9 @@ static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
 	}
 
 	if (strcasecmp(arg,"@none")==0) {
-	    dconf->groupsnr=-1;
+		dconf->groupsnr=-1;
 	}
-	
+
 	if (dconf->groupsnr<RUID_MAXGROUPS && dconf->groupsnr>-1) {
 		dconf->groups[dconf->groupsnr++] = ap_gname2id (arg);
 	}
@@ -257,10 +257,10 @@ static const char *set_documentchroot (cmd_parms *cmd, void *mconfig, const char
 
 	conf->chroot_dir = chroot_dir;
 	conf->document_root = document_root;
-	
+
 	return NULL;
 }
-                                                                        
+
 
 /* configure options in httpd.conf */
 static const command_rec ruid_cmds[] = {
@@ -290,10 +290,10 @@ static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server
 	apr_pool_userdata_get(&data, userdata_key, s->process->pool);
 	if (!data) {
 		apr_pool_userdata_set((const void *)1, userdata_key, apr_pool_cleanup_null, s->process->pool);
-	} else {	                                              
+	} else {
 		ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, NULL, MODULE_NAME "/" MODULE_VERSION " enabled");
 	}
-	
+
 	return OK;
 }
 
@@ -302,12 +302,12 @@ static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server
 static apr_status_t ruid_child_exit(void *data)
 {
 	int fd = (int)((long)data);
-	
+
 	if (close(fd) < 0) {
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR closing root file descriptor (%d) failed", MODULE_NAME, fd);
 		return APR_EGENERAL;
 	}
-	                                        
+
 	return APR_SUCCESS;
 }
 
@@ -319,23 +319,23 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 	int ncap;
 	cap_t cap;
 	cap_value_t capval[4];
-	
+
 	/* detect default uig/gid/groups */
-	/* TODO */	
+	/* TODO */
 
 	/* add module name to signature */
 	// ap_add_version_component(p, MODULE_NAME "/" MODULE_VERSION);
-	
+
 	stat_mode = UNSET;
 	chroot_root = UNSET;
 	while (s) {
 		conf = ap_get_module_config(s->module_config, &ruid2_module);
-		
+
 		/* detect stat mode usage */
 		if (conf->stat_used == SET && stat_mode == UNSET) {
 			stat_mode = SET;
 		}
-		
+
 		/* setup chroot jailbreak */
 		if (conf->chroot_dir && chroot_root == UNSET) {
 			if ((chroot_root = open("/.", O_RDONLY)) < 0) {
@@ -345,12 +345,12 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 				apr_pool_cleanup_register(p, (void*)((long)chroot_root), ruid_child_exit, apr_pool_cleanup_null);
 			}
 		}
-		
+
 		if (stat_mode != UNSET && chroot_root != UNSET) {
 			s = NULL;
 		} else {
-	    	        s = s->next;
-	    	}
+			s = s->next;
+		}
 	}
 
 	ncap = 2;
@@ -362,13 +362,13 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 	if (chroot_root != UNSET) capval[ncap++] = CAP_SYS_CHROOT;
 	cap_set_flag(cap, CAP_PERMITTED, ncap, capval, CAP_SET);
 	if (cap_set_proc(cap) != 0) {
-    		ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s:cap_set_proc failed", MODULE_NAME, __func__);
+		ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s:cap_set_proc failed", MODULE_NAME, __func__);
 	}
 	cap_free(cap);
 
 	/* MaxRequestsPerChild MUST be 1 to enable drop capability mode */
 	cap_mode = (ap_max_requests_per_child == 1 ? RUID_CAP_MODE_DROP : RUID_CAP_MODE_KEEP);
-		
+
 	/* check if process is dumpable */
 	coredump = prctl(PR_GET_DUMPABLE);
 }
@@ -378,13 +378,13 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 static apr_status_t ruid_suidback (void *data)
 {
 	request_rec *r = data;
-	
+
 	ruid_config_t *conf = ap_get_module_config (r->server->module_config, &ruid2_module);
 	core_server_config *core = (core_server_config *) ap_get_module_config(r->server->module_config, &core_module);
 
 	cap_t cap;
 	cap_value_t capval[3];
-	
+
 	if (cap_mode == RUID_CAP_MODE_KEEP) {
 
 		cap=cap_get_proc();
@@ -400,12 +400,12 @@ static apr_status_t ruid_suidback (void *data)
 		setgroups(0,NULL);
 		setgid(unixd_config.group_id);
 		setuid(unixd_config.user_id);
-	
+
 		/* set httpd process dumpable after setuid */
 		if (coredump) {
 			prctl(PR_SET_DUMPABLE,1);
 		}
-		
+
 		/* jail break */
 		if (conf->chroot_dir) {
 			if (fchdir(chroot_root) < 0) {
@@ -433,11 +433,11 @@ static apr_status_t ruid_suidback (void *data)
 }
 
 
-static int ruid_set_perm (request_rec *r, const char *from_func) 
+static int ruid_set_perm (request_rec *r, const char *from_func)
 {
 	ruid_config_t *conf = ap_get_module_config(r->server->module_config, &ruid2_module);
 	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
-	
+
 	int retval = DECLINED, i;
 	gid_t gid;
 	uid_t uid;
@@ -478,7 +478,7 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 			if (dconf->groups[i] < conf->min_gid) {
 				dconf->groups[i]=conf->default_gid;
 			}
-		} 	
+		}
 		setgroups(dconf->groupsnr, dconf->groups);
 	} else {
 		setgroups(0, NULL);
@@ -496,12 +496,12 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 			retval = HTTP_FORBIDDEN;
 		}
 	}
-	
+
 	/* set httpd process dumpable after setuid */
 	if (coredump) {
 		prctl(PR_SET_DUMPABLE,1);
 	}
-	
+
 	/* clear capabilties from effective set */
 	cap=cap_get_proc();
 	capval[0]=CAP_SETUID;
@@ -514,7 +514,7 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 		capval[3]=CAP_SYS_CHROOT;
 		cap_set_flag(cap,CAP_PERMITTED,4,capval,CAP_CLEAR);
 	}
-		                            
+
 	if (cap_set_proc(cap)!=0) {
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s>%s:cap_set_proc failed after setuid", MODULE_NAME, from_func, __func__);
 	}
@@ -525,10 +525,10 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 
 
 /* run in post_read_request hook */
-static int ruid_setup (request_rec *r) {
-
-	 /* We decline when we are in a subrequest. The ruid_setup function was
-	  * already executed in the main request. */
+static int ruid_setup (request_rec *r)
+{
+	/* We decline when we are in a subrequest. The ruid_setup function was
+	 * already executed in the main request. */
 	if (!ap_is_initial_req(r)) {
 		return DECLINED;
 	}
@@ -536,7 +536,7 @@ static int ruid_setup (request_rec *r) {
 	ruid_config_t *conf = ap_get_module_config (r->server->module_config,  &ruid2_module);
 	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
 	core_server_config *core = (core_server_config *) ap_get_module_config(r->server->module_config, &core_module);
-         
+
 	int ncap=0;
 	cap_t cap;
 	cap_value_t capval[2];
@@ -550,8 +550,8 @@ static int ruid_setup (request_rec *r) {
 			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s:cap_set_proc failed", MODULE_NAME, __func__);
 		}
 		cap_free(cap);
-	}	
-	
+	}
+
 	/* do chroot trick only if chrootdir is defined */
 	if (conf->chroot_dir)
 	{
@@ -567,7 +567,7 @@ static int ruid_setup (request_rec *r) {
 			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL,"%s %s %s chroot to %s failed", MODULE_NAME, ap_get_server_name (r), r->the_request, conf->chroot_dir);
 			return HTTP_FORBIDDEN;
 		}
-	
+
 		cap = cap_get_proc();
 		capval[0] = CAP_SYS_CHROOT;
 		cap_set_flag(cap, CAP_EFFECTIVE, 1, capval, CAP_CLEAR);
@@ -577,10 +577,10 @@ static int ruid_setup (request_rec *r) {
 		}
 		cap_free(cap);
 	}
-	
+
 	/* register suidback function */
 	apr_pool_cleanup_register(r->pool, r, ruid_suidback, apr_pool_cleanup_null);
-		
+
 	if (dconf->ruid_mode==RUID_MODE_CONF)
 	{
 		return ruid_set_perm(r, __func__);
