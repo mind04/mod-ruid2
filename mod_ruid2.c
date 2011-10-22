@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9.4
+   mod_ruid2 0.9.5b1
    Copyright (C) 2011 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -45,14 +45,10 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.4"
+#define MODULE_VERSION		"0.9.5b1"
 
-#define RUID_DEFAULT_UID	48
-#define RUID_DEFAULT_GID	48
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100
-
-#define RUID_MAXGROUPS		4
 
 #define RUID_MODE_STAT		0
 #define RUID_MODE_CONF		1
@@ -71,8 +67,8 @@ typedef struct
 
 	uid_t ruid_uid;
 	gid_t ruid_gid;
-	gid_t groups[RUID_MAXGROUPS];
-	int8_t groupsnr;
+	gid_t groups[NGROUPS_MAX];
+	int groupsnr;
 } ruid_dir_config_t;
 
 
@@ -80,6 +76,8 @@ typedef struct
 {
 	uid_t default_uid;
 	gid_t default_gid;
+	gid_t default_groups[NGROUPS_MAX];
+	int default_groupsnr;
 	uid_t min_uid;
 	gid_t min_gid;
 	int8_t stat_used;
@@ -120,8 +118,8 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 		conf->ruid_mode = child->ruid_mode;
 	}
 	if (conf->ruid_mode == RUID_MODE_STAT) {
-		conf->ruid_uid=RUID_DEFAULT_UID;
-		conf->ruid_gid=RUID_DEFAULT_GID;
+		conf->ruid_uid=unixd_config.user_id;
+		conf->ruid_gid=unixd_config.group_id;
 		conf->groupsnr=0;
 	} else {
 		conf->ruid_uid = (child->ruid_uid == UNSET) ? parent->ruid_uid : child->ruid_uid;
@@ -143,8 +141,8 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 {
 	ruid_config_t *conf = apr_palloc (p, sizeof (*conf));
 
-	conf->default_uid=RUID_DEFAULT_UID;
-	conf->default_gid=RUID_DEFAULT_GID;
+	conf->default_uid=unixd_config.user_id;
+	conf->default_gid=unixd_config.group_id;
 	conf->min_uid=RUID_MIN_UID;
 	conf->min_gid=RUID_MIN_GID;
 	conf->stat_used=UNSET;
@@ -177,6 +175,22 @@ static const char *set_mode (cmd_parms *cmd, void *mconfig, const char *arg)
 }
 
 
+static const char *set_uidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
+{
+	ruid_dir_config_t *dconf = (ruid_dir_config_t *) mconfig;
+	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
+
+	if (err != NULL) {
+		return err;
+	}
+
+	dconf->ruid_uid = ap_uname2id(uid);
+	dconf->ruid_gid = ap_gname2id(gid);
+
+	return NULL;
+}
+
+
 static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
 {
 	ruid_dir_config_t *dconf = (ruid_dir_config_t *) mconfig;
@@ -190,7 +204,7 @@ static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
 		dconf->groupsnr=-1;
 	}
 
-	if (dconf->groupsnr<RUID_MAXGROUPS && dconf->groupsnr>-1) {
+	if (dconf->groupsnr<NGROUPS_MAX && dconf->groupsnr>-1) {
 		dconf->groups[dconf->groupsnr++] = ap_gname2id (arg);
 	}
 
@@ -209,38 +223,6 @@ static const char *set_minuidgid (cmd_parms *cmd, void *mconfig, const char *uid
 
 	conf->min_uid = ap_uname2id(uid);
 	conf->min_gid = ap_gname2id(gid);
-
-	return NULL;
-}
-
-
-static const char *set_defuidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
-{
-	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	conf->default_uid = ap_uname2id(uid);
-	conf->default_gid = ap_gname2id(gid);
-
-	return NULL;
-}
-
-
-static const char *set_uidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
-{
-	ruid_dir_config_t *dconf = (ruid_dir_config_t *) mconfig;
-	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
-
-	if (err != NULL) {
-		return err;
-	}
-
-	dconf->ruid_uid = ap_uname2id(uid);
-	dconf->ruid_gid = ap_gname2id(gid);
 
 	return NULL;
 }
@@ -265,11 +247,10 @@ static const char *set_documentchroot (cmd_parms *cmd, void *mconfig, const char
 /* configure options in httpd.conf */
 static const command_rec ruid_cmds[] = {
 
-	AP_INIT_TAKE1 ("RMode", set_mode, NULL, RSRC_CONF | ACCESS_CONF, "stat or config (default stat)"),
-	AP_INIT_ITERATE ("RGroups", set_groups, NULL, RSRC_CONF | ACCESS_CONF, "Set aditional groups"),
-	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (RDefaultUidGid)"),
-	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
-	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User,Group)"),
+	AP_INIT_TAKE1 ("RMode", set_mode, NULL, RSRC_CONF | ACCESS_CONF, "Set config or stat mode (default config)"),
+	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Set [ug]id in config mode"),
+	AP_INIT_ITERATE ("RGroups", set_groups, NULL, RSRC_CONF | ACCESS_CONF, "Set aditional supplementary group IDs"),
+	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User, Group)"),
 	AP_INIT_TAKE2 ("RDocumentChRoot", set_documentchroot, NULL, RSRC_CONF, "Set chroot directory and the document root inside"),
 	{NULL}
 };
@@ -315,13 +296,17 @@ static apr_status_t ruid_child_exit(void *data)
 /* run after child init we are uid User and gid Group */
 static void ruid_child_init (apr_pool_t *p, server_rec *s)
 {
-	ruid_config_t *conf;
+	ruid_config_t *conf = ap_get_module_config (s->module_config, &ruid2_module);
+
 	int ncap;
 	cap_t cap;
 	cap_value_t capval[4];
 
-	/* detect default uig/gid/groups */
-	/* TODO */
+	/* detect default supplementary group IDs */
+	if ((conf->default_groupsnr = getgroups(NGROUPS_MAX, conf->default_groups)) == -1) {
+		conf->default_groupsnr = 0;
+		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s ERROR getgroups() failed on child init, ignoring supplementary group IDs", MODULE_NAME);
+	}
 
 	/* add module name to signature */
 	// ap_add_version_component(p, MODULE_NAME "/" MODULE_VERSION);
@@ -397,7 +382,7 @@ static apr_status_t ruid_suidback (void *data)
 		}
 		cap_free(cap);
 
-		setgroups(0,NULL);
+		setgroups(conf->default_groupsnr, conf->default_groups);
 		setgid(unixd_config.group_id);
 		setuid(unixd_config.user_id);
 
@@ -593,7 +578,7 @@ static int ruid_setup (request_rec *r)
 /* run in map_to_storage hook */
 static int ruid_uiiii (request_rec *r)
 {
-        return ruid_set_perm(r, __func__);
+	return ruid_set_perm(r, __func__);
 }
 
 
