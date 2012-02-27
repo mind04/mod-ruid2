@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9.5
+   mod_ruid2 0.9.5b1
    Copyright (C) 2011 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
