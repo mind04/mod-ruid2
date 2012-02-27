@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9.5b1
+   mod_ruid2 0.9.5b2
    Copyright (C) 2011 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -31,10 +31,7 @@
 #include "apr_strings.h"
 #include "apr_md5.h"
 #include "apr_file_info.h"
-#include "ap_config.h"
 #include "unixd.h"
-#include "httpd.h"
-#include "http_config.h"
 #include "http_core.h"
 #include "http_log.h"
 #include "http_protocol.h"
@@ -42,13 +39,11 @@
 #include "mpm_common.h"
 
 #include <unistd.h>
-#include <grp.h>
-#include <sys/types.h>
 #include <sys/prctl.h>
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.5"
+#define MODULE_VERSION		"0.9.5b2"
 
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100
