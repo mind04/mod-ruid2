@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9.5b1
+   mod_ruid2 0.9.5
    Copyright (C) 2011 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -32,6 +32,7 @@
 #include "apr_md5.h"
 #include "apr_file_info.h"
 #include "ap_config.h"
+#include "unixd.h"
 #include "httpd.h"
 #include "http_config.h"
 #include "http_core.h"
@@ -41,11 +42,13 @@
 #include "mpm_common.h"
 
 #include <unistd.h>
+#include <grp.h>
+#include <sys/types.h>
 #include <sys/prctl.h>
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.5b1"
+#define MODULE_VERSION		"0.9.5"
 
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100
@@ -60,6 +63,10 @@
 #define UNSET			-1
 #define SET			1
 
+/* added for apache 2.0 and 2.2 compatibility */
+#if !AP_MODULE_MAGIC_AT_LEAST(20081201,0)
+#define ap_unixd_config unixd_config
+#endif
 
 typedef struct
 {
@@ -76,8 +83,8 @@ typedef struct
 {
 	uid_t default_uid;
 	gid_t default_gid;
-	gid_t default_groups[NGROUPS_MAX];
-	int default_groupsnr;
+	gid_t startup_groups[NGROUPS_MAX];
+	int startup_groupsnr;
 	uid_t min_uid;
 	gid_t min_gid;
 	int8_t stat_used;
@@ -141,8 +148,8 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 {
 	ruid_config_t *conf = apr_palloc (p, sizeof (*conf));
 
-	conf->default_uid=unixd_config.user_id;
-	conf->default_gid=unixd_config.group_id;
+	conf->default_uid=ap_unixd_config.user_id;
+	conf->default_gid=ap_unixd_config.group_id;
 	conf->min_uid=RUID_MIN_UID;
 	conf->min_gid=RUID_MIN_GID;
 	conf->stat_used=UNSET;
@@ -212,6 +219,22 @@ static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
 }
 
 
+static const char *set_defuidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
+{
+	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
+	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
+
+	if (err != NULL) {
+		return err;
+	}
+
+	conf->default_uid = ap_uname2id(uid);
+	conf->default_gid = ap_gname2id(gid);
+
+	return NULL;
+}
+
+
 static const char *set_minuidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
 {
 	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
@@ -247,10 +270,11 @@ static const char *set_documentchroot (cmd_parms *cmd, void *mconfig, const char
 /* configure options in httpd.conf */
 static const command_rec ruid_cmds[] = {
 
-	AP_INIT_TAKE1 ("RMode", set_mode, NULL, RSRC_CONF | ACCESS_CONF, "Set config or stat mode (default config)"),
-	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Set [ug]id in config mode"),
-	AP_INIT_ITERATE ("RGroups", set_groups, NULL, RSRC_CONF | ACCESS_CONF, "Set aditional supplementary group IDs"),
-	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User, Group)"),
+	AP_INIT_TAKE1 ("RMode", set_mode, NULL, RSRC_CONF | ACCESS_CONF, "stat or config (default stat)"),
+	AP_INIT_TAKE2 ("RUidGid", set_uidgid, NULL, RSRC_CONF | ACCESS_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (User,Group)"),
+	AP_INIT_ITERATE ("RGroups", set_groups, NULL, RSRC_CONF | ACCESS_CONF, "Set aditional groups"),
+	AP_INIT_TAKE2 ("RDefaultUidGid", set_defuidgid, NULL, RSRC_CONF, "If uid or gid is < than RMinUidGid set[ug]id to this uid gid"),
+	AP_INIT_TAKE2 ("RMinUidGid", set_minuidgid, NULL, RSRC_CONF, "Minimal uid or gid file/dir, else set[ug]id to default (RDefaultUidGid)"),
 	AP_INIT_TAKE2 ("RDocumentChRoot", set_documentchroot, NULL, RSRC_CONF, "Set chroot directory and the document root inside"),
 	{NULL}
 };
@@ -297,14 +321,13 @@ static apr_status_t ruid_child_exit(void *data)
 static void ruid_child_init (apr_pool_t *p, server_rec *s)
 {
 	ruid_config_t *conf = ap_get_module_config (s->module_config, &ruid2_module);
-
 	int ncap;
 	cap_t cap;
 	cap_value_t capval[4];
 
 	/* detect default supplementary group IDs */
-	if ((conf->default_groupsnr = getgroups(NGROUPS_MAX, conf->default_groups)) == -1) {
-		conf->default_groupsnr = 0;
+	if ((conf->startup_groupsnr = getgroups(NGROUPS_MAX, conf->startup_groups)) == -1) {
+		conf->startup_groupsnr = 0;
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s ERROR getgroups() failed on child init, ignoring supplementary group IDs", MODULE_NAME);
 	}
 
@@ -382,9 +405,9 @@ static apr_status_t ruid_suidback (void *data)
 		}
 		cap_free(cap);
 
-		setgroups(conf->default_groupsnr, conf->default_groups);
-		setgid(unixd_config.group_id);
-		setuid(unixd_config.user_id);
+		setgroups(conf->startup_groupsnr, conf->startup_groups);
+		setgid(ap_unixd_config.group_id);
+		setuid(ap_unixd_config.user_id);
 
 		/* set httpd process dumpable after setuid */
 		if (coredump) {
