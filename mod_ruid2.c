@@ -1,6 +1,6 @@
 /*
    mod_ruid2 0.9.5b2
-   Copyright (C) 2011 Monshouwer Internet Diensten
+   Copyright (C) 2009-2012 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
 
@@ -120,8 +120,8 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 		conf->ruid_mode = child->ruid_mode;
 	}
 	if (conf->ruid_mode == RUID_MODE_STAT) {
-		conf->ruid_uid=unixd_config.user_id;
-		conf->ruid_gid=unixd_config.group_id;
+		conf->ruid_uid=ap_unixd_config.user_id;
+		conf->ruid_gid=ap_unixd_config.group_id;
 		conf->groupsnr=0;
 	} else {
 		conf->ruid_uid = (child->ruid_uid == UNSET) ? parent->ruid_uid : child->ruid_uid;
