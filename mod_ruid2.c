@@ -26,7 +26,12 @@
    - /usr/apache/bin/apxs -a -i -l cap -c mod_ruid2.c
 */
 
+#include "ap_release.h"
+
+/* define CORE_PRIVATE for apache < 2.4 */
+#if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER < 4
 #define CORE_PRIVATE
+#endif
 
 #include "apr_strings.h"
 #include "apr_md5.h"
