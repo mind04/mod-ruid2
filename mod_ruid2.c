@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9.5b2
+   mod_ruid2 0.9.5b3
    Copyright (C) 2009-2012 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -48,18 +48,24 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.5b2"
+#define MODULE_VERSION		"0.9.5b3"
 
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100
 
-#define RUID_MODE_STAT		0
-#define RUID_MODE_CONF		1
+#define RUID_MODE_CONF		0
+#define RUID_MODE_STAT		1
 #define RUID_MODE_UNDEFINED	2
+
+#define RUID_MODE_STAT_NOT_USED	0
+#define RUID_MODE_STAT_USED	1
+#define RUID_CHROOT_NOT_USED	0
+#define RUID_CHROOT_USED	1
 
 #define RUID_CAP_MODE_DROP	0
 #define RUID_CAP_MODE_KEEP	1
 
+#define NONE			-2
 #define UNSET			-1
 #define SET			1
 
@@ -71,7 +77,6 @@
 typedef struct
 {
 	int8_t ruid_mode;
-
 	uid_t ruid_uid;
 	gid_t ruid_gid;
 	gid_t groups[NGROUPS_MAX];
@@ -83,11 +88,8 @@ typedef struct
 {
 	uid_t default_uid;
 	gid_t default_gid;
-	gid_t startup_groups[NGROUPS_MAX];
-	int startup_groupsnr;
 	uid_t min_uid;
 	gid_t min_gid;
-	int8_t stat_used;
 	const char *chroot_dir;
 	const char *document_root;
 } ruid_config_t;
@@ -96,18 +98,31 @@ typedef struct
 module AP_MODULE_DECLARE_DATA ruid2_module;
 
 
-static int coredump, cap_mode, stat_mode, chroot_root;
+static int mode_stat_used	= RUID_MODE_STAT_NOT_USED;
+static int chroot_used		= RUID_CHROOT_NOT_USED;
+
+static int coredump, cap_mode, root_handle;
 static const char *old_root;
+
+static gid_t startup_groups[NGROUPS_MAX];
+static int startup_groupsnr;
 
 
 static void *create_dir_config(apr_pool_t *p, char *d)
 {
+	char *dname = d;
 	ruid_dir_config_t *dconf = apr_pcalloc (p, sizeof(*dconf));
 
-	dconf->ruid_mode=RUID_MODE_UNDEFINED;
+	if (dname == NULL) {
+		// Server config
+		dconf->ruid_mode=RUID_MODE_CONF;
+	} else {
+		// Directory config
+		dconf->ruid_mode=RUID_MODE_UNDEFINED;
+	}
 	dconf->ruid_uid=UNSET;
 	dconf->ruid_gid=UNSET;
-	dconf->groupsnr=0;
+	dconf->groupsnr=UNSET;
 
 	return dconf;
 }
@@ -125,18 +140,20 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 		conf->ruid_mode = child->ruid_mode;
 	}
 	if (conf->ruid_mode == RUID_MODE_STAT) {
-		conf->ruid_uid=ap_unixd_config.user_id;
-		conf->ruid_gid=ap_unixd_config.group_id;
-		conf->groupsnr=0;
+		conf->ruid_uid=UNSET;
+		conf->ruid_gid=UNSET;
+		conf->groupsnr=UNSET;
 	} else {
 		conf->ruid_uid = (child->ruid_uid == UNSET) ? parent->ruid_uid : child->ruid_uid;
 		conf->ruid_gid = (child->ruid_gid == UNSET) ? parent->ruid_gid : child->ruid_gid;
-		if (child->groupsnr != 0) {
+		if (child->groupsnr > 0) {
 			memcpy(conf->groups, child->groups, sizeof(child->groups));
 			conf->groupsnr = child->groupsnr;
-		} else {
+		} else if (parent->groupsnr > 0) {
 			memcpy(conf->groups, parent->groups, sizeof(parent->groups));
 			conf->groupsnr = parent->groupsnr;
+		} else {
+			conf->groupsnr = (child->groupsnr == UNSET) ? parent->groupsnr : child->groupsnr;
 		}
 	}
 
@@ -148,11 +165,10 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 {
 	ruid_config_t *conf = apr_palloc (p, sizeof (*conf));
 
-	conf->default_uid=ap_unixd_config.user_id;
-	conf->default_gid=ap_unixd_config.group_id;
+	conf->default_uid=ap_unixd_config.group_id;
+	conf->default_gid=ap_unixd_config.user_id;
 	conf->min_uid=RUID_MIN_UID;
 	conf->min_gid=RUID_MIN_GID;
-	conf->stat_used=UNSET;
 	conf->chroot_dir=NULL;
 	conf->document_root=NULL;
 
@@ -163,7 +179,6 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 /* configure option functions */
 static const char *set_mode (cmd_parms *cmd, void *mconfig, const char *arg)
 {
-	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
 	ruid_dir_config_t *dconf = (ruid_dir_config_t *) mconfig;
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_FILES | NOT_IN_LIMIT);
 
@@ -171,11 +186,11 @@ static const char *set_mode (cmd_parms *cmd, void *mconfig, const char *arg)
 		return err;
 	}
 
-	if (strcasecmp(arg,"config")==0) {
-		dconf->ruid_mode=RUID_MODE_CONF;
-	} else {
+	if (strcasecmp(arg,"stat")==0) {
 		dconf->ruid_mode=RUID_MODE_STAT;
-		conf->stat_used=SET;
+		mode_stat_used |= RUID_MODE_STAT_USED;
+	} else {
+		dconf->ruid_mode=RUID_MODE_CONF;
 	}
 
 	return NULL;
@@ -207,11 +222,14 @@ static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
 		return err;
 	}
 
-	if (strcasecmp(arg,"@none")==0) {
-		dconf->groupsnr=-1;
+	if (strcasecmp(arg,"@none") == 0) {
+		dconf->groupsnr=NONE;
 	}
 
-	if (dconf->groupsnr<NGROUPS_MAX && dconf->groupsnr>-1) {
+	if (dconf->groupsnr == UNSET) {
+		dconf->groupsnr = 0;
+	}
+	if ((dconf->groupsnr < NGROUPS_MAX) && (dconf->groupsnr >= 0)) {
 		dconf->groups[dconf->groupsnr++] = ap_gname2id (arg);
 	}
 
@@ -262,6 +280,7 @@ static const char *set_documentchroot (cmd_parms *cmd, void *mconfig, const char
 
 	conf->chroot_dir = chroot_dir;
 	conf->document_root = document_root;
+	chroot_used |= RUID_CHROOT_USED;
 
 	return NULL;
 }
@@ -320,54 +339,44 @@ static apr_status_t ruid_child_exit(void *data)
 /* run after child init we are uid User and gid Group */
 static void ruid_child_init (apr_pool_t *p, server_rec *s)
 {
-	ruid_config_t *conf = ap_get_module_config (s->module_config, &ruid2_module);
 	int ncap;
 	cap_t cap;
 	cap_value_t capval[4];
 
 	/* detect default supplementary group IDs */
-	if ((conf->startup_groupsnr = getgroups(NGROUPS_MAX, conf->startup_groups)) == -1) {
-		conf->startup_groupsnr = 0;
+	if ((startup_groupsnr = getgroups(NGROUPS_MAX, startup_groups)) == -1) {
+		startup_groupsnr = 0;
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s ERROR getgroups() failed on child init, ignoring supplementary group IDs", MODULE_NAME);
 	}
 
-	/* add module name to signature */
-	// ap_add_version_component(p, MODULE_NAME "/" MODULE_VERSION);
-
-	stat_mode = UNSET;
-	chroot_root = UNSET;
-	while (s) {
-		conf = ap_get_module_config(s->module_config, &ruid2_module);
-
-		/* detect stat mode usage */
-		if (conf->stat_used == SET && stat_mode == UNSET) {
-			stat_mode = SET;
-		}
-
-		/* setup chroot jailbreak */
-		if (conf->chroot_dir && chroot_root == UNSET) {
-			if ((chroot_root = open("/.", O_RDONLY)) < 0) {
-				ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR opening root file descriptor failed (%s)", MODULE_NAME, strerror(errno));
-			} else {
-				/* register cleanup function */
-				apr_pool_cleanup_register(p, (void*)((long)chroot_root), ruid_child_exit, apr_pool_cleanup_null);
-			}
-		}
-
-		if (stat_mode != UNSET && chroot_root != UNSET) {
-			s = NULL;
+	/* setup chroot jailbreak */
+	if (chroot_used == RUID_CHROOT_USED) {
+		if ((root_handle = open("/.", O_RDONLY)) < 0) {
+			root_handle = UNSET;
+			ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR opening root file descriptor failed (%s)", MODULE_NAME, strerror(errno));
 		} else {
-			s = s->next;
+			/* register cleanup function */
+			apr_pool_cleanup_register(p, (void*)((long)root_handle), ruid_child_exit, apr_pool_cleanup_null);
 		}
+	} else {
+		root_handle = UNSET;
 	}
 
-	ncap = 2;
+//	ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s StatMode = %d", MODULE_NAME, mode_stat_used);
+//	ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s Chroot = %d", MODULE_NAME, chroot_used);
+
 	/* init cap with all zeros */
 	cap = cap_init();
+
 	capval[0] = CAP_SETUID;
 	capval[1] = CAP_SETGID;
-	if (stat_mode == SET) capval[ncap++] = CAP_DAC_READ_SEARCH;
-	if (chroot_root != UNSET) capval[ncap++] = CAP_SYS_CHROOT;
+	ncap = 2;
+	if (mode_stat_used == RUID_MODE_STAT_USED) {
+		capval[ncap++] = CAP_DAC_READ_SEARCH;
+	}
+	if (root_handle != UNSET) {
+		capval[ncap++] = CAP_SYS_CHROOT;
+	}
 	cap_set_flag(cap, CAP_PERMITTED, ncap, capval, CAP_SET);
 	if (cap_set_proc(cap) != 0) {
 		ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s:cap_set_proc failed", MODULE_NAME, __func__);
@@ -405,7 +414,7 @@ static apr_status_t ruid_suidback (void *data)
 		}
 		cap_free(cap);
 
-		setgroups(conf->startup_groupsnr, conf->startup_groups);
+		setgroups(startup_groupsnr, startup_groups);
 		setgid(ap_unixd_config.group_id);
 		setuid(ap_unixd_config.user_id);
 
@@ -416,8 +425,8 @@ static apr_status_t ruid_suidback (void *data)
 
 		/* jail break */
 		if (conf->chroot_dir) {
-			if (fchdir(chroot_root) < 0) {
-				ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s failed to fchdir to root dir (%d) (%s)", MODULE_NAME, chroot_root, strerror(errno));
+			if (fchdir(root_handle) < 0) {
+				ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s failed to fchdir to root dir (%d) (%s)", MODULE_NAME, root_handle, strerror(errno));
 			} else {
 				if (chroot(".") != 0) {
 					ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s jail break failed", MODULE_NAME);
@@ -446,9 +455,11 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	ruid_config_t *conf = ap_get_module_config(r->server->module_config, &ruid2_module);
 	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
 
-	int retval = DECLINED, i;
+	int retval = DECLINED;
 	gid_t gid;
 	uid_t uid;
+	gid_t groups[NGROUPS_MAX];
+	int groupsnr;
 
 	cap_t cap;
 	cap_value_t capval[4];
@@ -462,43 +473,51 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	}
 	cap_free(cap);
 
-	if (dconf->ruid_mode==RUID_MODE_STAT || dconf->ruid_mode==RUID_MODE_UNDEFINED) {
+	if (dconf->ruid_mode==RUID_MODE_STAT) {
 		/* set uid,gid to uid,gid of file
 		 * if file does not exist, finfo.user and finfo.group is set to uid,gid of parent directory
 		 */
 		gid=r->finfo.group;
 		uid=r->finfo.user;
 	} else {
-		gid=dconf->ruid_gid;
-		uid=dconf->ruid_uid;
+		gid=(dconf->ruid_gid == UNSET) ? ap_unixd_config.group_id : dconf->ruid_gid;
+		uid=(dconf->ruid_uid == UNSET) ? ap_unixd_config.user_id : dconf->ruid_uid;
 	}
 
+	ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s function=%s getgid=%d getuid=%d groups=%d mode=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, gid, uid, dconf->groupsnr, dconf->ruid_mode);
+
 	/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
-	if (uid < conf->min_uid || uid == UNSET) {
+	if (uid < conf->min_uid) {
 		uid=conf->default_uid;
 	}
-	if (gid < conf->min_gid || gid == UNSET){
+	if (gid < conf->min_gid) {
 		gid=conf->default_gid;
 	}
 
-	if (dconf->groupsnr>0) {
-		for (i=0; i < dconf->groupsnr; i++) {
-			if (dconf->groups[i] < conf->min_gid) {
-				dconf->groups[i]=conf->default_gid;
+	/* set supplementary groups */
+	if ((dconf->groupsnr == UNSET) && (startup_groupsnr > 0)) {
+		memcpy(groups, startup_groups, sizeof(groups));
+		groupsnr = startup_groupsnr;
+	} else if (dconf->groupsnr > 0) {
+		for (groupsnr = 0; groupsnr < dconf->groupsnr; groupsnr++) {
+			if (dconf->groups[groupsnr] >= conf->min_gid) {
+				groups[groupsnr] = dconf->groups[groupsnr];
+			} else {
+				groups[groupsnr] = conf->default_gid;
 			}
 		}
-		setgroups(dconf->groupsnr, dconf->groups);
 	} else {
-		setgroups(0, NULL);
+		groupsnr = 0;
 	}
+	setgroups(groupsnr, groups);
 
 	/* final set[ug]id */
-	if (setgid (gid) != 0)
+	if (setgid(gid) != 0)
 	{
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setgid(%d) failed. getgid=%d getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->ruid_gid, getgid(), getuid());
 		retval = HTTP_FORBIDDEN;
 	} else {
-		if (setuid (uid) != 0)
+		if (setuid(uid) != 0)
 		{
 			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s %s>%s:setuid(%d) failed. getuid=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, __func__, dconf->ruid_uid, getuid());
 			retval = HTTP_FORBIDDEN;
@@ -550,7 +569,7 @@ static int ruid_setup (request_rec *r)
 	cap_value_t capval[2];
 
 	if (dconf->ruid_mode==RUID_MODE_STAT) capval[ncap++] = CAP_DAC_READ_SEARCH;
-	if (chroot_root != UNSET) capval[ncap++] = CAP_SYS_CHROOT;
+	if (root_handle != UNSET) capval[ncap++] = CAP_SYS_CHROOT;
 	if (ncap) {
 		cap=cap_get_proc();
 		cap_set_flag(cap, CAP_EFFECTIVE, ncap, capval, CAP_SET);
@@ -601,7 +620,14 @@ static int ruid_setup (request_rec *r)
 /* run in map_to_storage hook */
 static int ruid_uiiii (request_rec *r)
 {
-	return ruid_set_perm(r, __func__);
+	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
+
+	if (dconf->ruid_mode==RUID_MODE_STAT)
+	{
+		return ruid_set_perm(r, __func__);
+	} else {
+		return DECLINED;
+	}
 }
 
 
