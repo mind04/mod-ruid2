@@ -362,9 +362,6 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 		root_handle = UNSET;
 	}
 
-//	ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s StatMode = %d", MODULE_NAME, mode_stat_used);
-//	ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s Chroot = %d", MODULE_NAME, chroot_used);
-
 	/* init cap with all zeros */
 	cap = cap_init();
 
@@ -483,8 +480,6 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 		gid=(dconf->ruid_gid == UNSET) ? ap_unixd_config.group_id : dconf->ruid_gid;
 		uid=(dconf->ruid_uid == UNSET) ? ap_unixd_config.user_id : dconf->ruid_uid;
 	}
-
-	ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s %s %s function=%s getgid=%d getuid=%d groups=%d mode=%d", MODULE_NAME, ap_get_server_name(r), r->the_request, from_func, gid, uid, dconf->groupsnr, dconf->ruid_mode);
 
 	/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
 	if (uid < conf->min_uid) {
@@ -620,14 +615,7 @@ static int ruid_setup (request_rec *r)
 /* run in map_to_storage hook */
 static int ruid_uiiii (request_rec *r)
 {
-	ruid_dir_config_t *dconf = ap_get_module_config(r->per_dir_config, &ruid2_module);
-
-	if (dconf->ruid_mode==RUID_MODE_STAT)
-	{
 		return ruid_set_perm(r, __func__);
-	} else {
-		return DECLINED;
-	}
 }
 
 
