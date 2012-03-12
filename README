@@ -1,5 +1,5 @@
 ABOUT
-mod_ruid2 is a suexec module for apache 2.0, based on mod_ruid and mod_suid2
+mod_ruid2 is a suexec module for apache 2.0, 2.2 and 2.4, based on mod_ruid and mod_suid2
 
 -it runs only on linux because afaik only linux has implemented posix 1003.1e capabilities
 -it has better performance than mod_suid2 because it doesn`t need to kill httpd children
@@ -9,12 +9,12 @@ mod_ruid2 is a suexec module for apache 2.0, based on mod_ruid and mod_suid2
  or something..
 
 -there are two main operation modes: stat and config
- 1. stat
- is default, httpd setuid and setgid to uid and gid of requested filename(script)/directory
- this is good if you use mod_vhost_alias for virtual hosting
+ 1. config
+ is default, you must define uid and gid. If no [ug]id is defined the default user and group are used.
 
- 2. config
- like mod_suid2, you must define uid and gid 
+ 2. stat
+ httpd setuid and setgid to uid and gid of requested filename(script)/directory
+ this is good if you use mod_vhost_alias for virtual hosting
 
 INSTALL
  1. download and install latest libcap from here
@@ -23,16 +23,17 @@ INSTALL
  4. restart apache
 
 CONFIGURE OPTIONS:
- RMode config|stat (default is stat)
+ RMode config|stat (default is config)
  RUidGid user|#uid group|#gid - when RMode is config, set to this uid and gid
 
  RMinUidGid user|#uid group|#gid - when uid/gid is < than min uid/gid set to default uid/gid
  RDefaultUidGid user|#uid group|#gid
 
  RGroups group1 group2 - aditional groups set via setgroups
- 
+ @none erase al previous defined groups.
+
  RDocumentChrRoot - Set chroot directory and the document root inside
- 
+
 
 EXAMPLE:
 
@@ -49,7 +50,7 @@ EXAMPLE:
    RDocumentChRoot /home /example.com/public_html
    ServerName     example.com
    ServerAlias    www.example.com
-   RMode          config
+   RMode          config		# unnecessary since config is the default
    RUidGid        user1 group1
    RGroups        apachetmp
 

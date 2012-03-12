@@ -1,6 +1,6 @@
 Summary: Run all httpd process under user's access right.
 Name: mod_ruid2
-Version: 0.9.4
+Version: 0.9.5
 Release: 1%{dist}
 Group: System Environment/Daemons
 URL: http://sourceforge.net/projects/mod-ruid/
@@ -47,11 +47,16 @@ install -m 644 ruid2.conf \
 
 
 %changelog
+* Wed Mar 07 2012 Kees Monshouwer <km|monshouwer_com> 0.9.5-1
+- Update to 0.9.5
+- Switch default mode to 'config' !!!
+- Apache 2.4 compatibility
+
 * Wed Feb 23 2011 Kees Monshouwer <km|monshouwer.com> 0.9.4-1
 - Update to 0.9.4
 - Fixed: mod_security incompatibility issue
 
-* Tue Jan 04 2011 Kees Monshouwer <km|monshouwer.com> 0.9.3-1
+* Tue Jan 04 2011 Kees Monshouwer <km|monshouwer_com> 0.9.3-1
 - Update to 0.9.3
 - Fixed: chroot issue with sub-requests caused by mod_rewrite 
 
