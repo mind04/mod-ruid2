@@ -7,7 +7,7 @@ URL: http://sourceforge.net/projects/mod-ruid/
 Source0: http://sourceforge.net/projects/mod-ruid/files/mod_ruid2/mod_ruid2-%{version}.tar.bz2
 License: Apache Software License version 2
 BuildRoot: %{_tmppath}/%{name}-%{version}-root
-BuildPrereq: httpd-devel >= 2.0.40 libcap-devel
+BuildRequires: httpd-devel >= 2.0.40 libcap-devel
 Requires: httpd >= 2.0.40 libcap
 Obsoletes: mod_ruid
 

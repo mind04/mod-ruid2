@@ -30,7 +30,7 @@ CONFIGURE OPTIONS:
  RDefaultUidGid user|#uid group|#gid
 
  RGroups group1 group2 - aditional groups set via setgroups
- @none erase al previous defined groups.
+ @none - clear all previous defined groups.
 
  RDocumentChrRoot - Set chroot directory and the document root inside
 
