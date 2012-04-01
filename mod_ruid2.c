@@ -165,8 +165,8 @@ static void *create_config (apr_pool_t *p, server_rec *s)
 {
 	ruid_config_t *conf = apr_palloc (p, sizeof (*conf));
 
-	conf->default_uid=ap_unixd_config.group_id;
-	conf->default_gid=ap_unixd_config.user_id;
+	conf->default_uid=ap_unixd_config.user_id;
+	conf->default_gid=ap_unixd_config.group_id;
 	conf->min_uid=RUID_MIN_UID;
 	conf->min_gid=RUID_MIN_GID;
 	conf->chroot_dir=NULL;
