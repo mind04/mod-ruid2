@@ -1,6 +1,6 @@
 Summary: Run all httpd process under user's access right.
 Name: mod_ruid2
-Version: 0.9.5
+Version: 0.9.6
 Release: 1%{dist}
 Group: System Environment/Daemons
 URL: http://sourceforge.net/projects/mod-ruid/
@@ -47,6 +47,10 @@ install -m 644 ruid2.conf \
 
 
 %changelog
+* Wed Apr 11 2012 Kees Monshouwer <km|monshouwer_com> 0.9.6-1
+- Update to 0.9.6
+- Fixed: user group exchange in default config
+
 * Wed Mar 07 2012 Kees Monshouwer <km|monshouwer_com> 0.9.5-1
 - Update to 0.9.5
 - Switch default mode to 'config' !!!
