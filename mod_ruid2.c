@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9.6
+   mod_ruid2 0.9.7
    Copyright (C) 2009-2012 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -48,7 +48,7 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.6"
+#define MODULE_VERSION		"0.9.7"
 
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100
