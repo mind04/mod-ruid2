@@ -53,6 +53,8 @@
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100
 
+#define RUID_MAXGROUPS		8
+
 #define RUID_MODE_CONF		0
 #define RUID_MODE_STAT		1
 #define RUID_MODE_UNDEFINED	2
@@ -79,7 +81,7 @@ typedef struct
 	int8_t ruid_mode;
 	uid_t ruid_uid;
 	gid_t ruid_gid;
-	gid_t groups[NGROUPS_MAX];
+	gid_t groups[RUID_MAXGROUPS];
 	int groupsnr;
 } ruid_dir_config_t;
 
@@ -104,7 +106,7 @@ static int chroot_used		= RUID_CHROOT_NOT_USED;
 static int coredump, cap_mode, root_handle;
 static const char *old_root;
 
-static gid_t startup_groups[NGROUPS_MAX];
+static gid_t startup_groups[RUID_MAXGROUPS];
 static int startup_groupsnr;
 
 
@@ -229,7 +231,7 @@ static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
 	if (dconf->groupsnr == UNSET) {
 		dconf->groupsnr = 0;
 	}
-	if ((dconf->groupsnr < NGROUPS_MAX) && (dconf->groupsnr >= 0)) {
+	if ((dconf->groupsnr < RUID_MAXGROUPS) && (dconf->groupsnr >= 0)) {
 		dconf->groups[dconf->groupsnr++] = ap_gname2id (arg);
 	}
 
@@ -344,7 +346,7 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 	cap_value_t capval[4];
 
 	/* detect default supplementary group IDs */
-	if ((startup_groupsnr = getgroups(NGROUPS_MAX, startup_groups)) == -1) {
+	if ((startup_groupsnr = getgroups(RUID_MAXGROUPS, startup_groups)) == -1) {
 		startup_groupsnr = 0;
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s ERROR getgroups() failed on child init, ignoring supplementary group IDs", MODULE_NAME);
 	}
@@ -455,7 +457,7 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	int retval = DECLINED;
 	gid_t gid;
 	uid_t uid;
-	gid_t groups[NGROUPS_MAX];
+	gid_t groups[RUID_MAXGROUPS];
 	int groupsnr;
 
 	cap_t cap;
