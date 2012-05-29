@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9.7
+   mod_ruid2 0.9.8b1
    Copyright (C) 2009-2012 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -48,7 +48,7 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.7"
+#define MODULE_VERSION		"0.9.8b1"
 
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100
@@ -461,7 +461,7 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	int groupsnr;
 
 	cap_t cap;
-	cap_value_t capval[4];
+	cap_value_t capval[3];
 
 	cap=cap_get_proc();
 	capval[0]=CAP_SETUID;
@@ -533,14 +533,9 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	capval[2]=CAP_DAC_READ_SEARCH;
 	cap_set_flag(cap,CAP_EFFECTIVE,3,capval,CAP_CLEAR);
 
-	if (cap_mode == RUID_CAP_MODE_DROP) {
-		/* clear capabilities from permitted set (permanent) */
-		capval[3]=CAP_SYS_CHROOT;
-		cap_set_flag(cap,CAP_PERMITTED,4,capval,CAP_CLEAR);
-	}
-
 	if (cap_set_proc(cap)!=0) {
 		ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s>%s:cap_set_proc failed after setuid", MODULE_NAME, from_func, __func__);
+		retval = HTTP_FORBIDDEN;
 	}
 	cap_free(cap);
 
@@ -617,7 +612,28 @@ static int ruid_setup (request_rec *r)
 /* run in map_to_storage hook */
 static int ruid_uiiii (request_rec *r)
 {
-		return ruid_set_perm(r, __func__);
+	int retval = ruid_set_perm(r, __func__);
+
+	cap_t cap;
+	cap_value_t capval[4];
+
+	/* clear capabilities from permitted set (permanent) */
+	if (cap_mode == RUID_CAP_MODE_DROP) {
+		cap=cap_get_proc();
+		capval[0]=CAP_SETUID;
+		capval[1]=CAP_SETGID;
+		capval[2]=CAP_DAC_READ_SEARCH;
+		capval[3]=CAP_SYS_CHROOT;
+		cap_set_flag(cap,CAP_PERMITTED,4,capval,CAP_CLEAR);
+
+		if (cap_set_proc(cap)!=0) {
+			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s:cap_set_proc failed after setuid", MODULE_NAME, __func__);
+			retval = HTTP_FORBIDDEN;
+		}
+		cap_free(cap);
+	}
+
+	return retval;
 }
 
 
