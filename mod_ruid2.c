@@ -612,6 +612,10 @@ static int ruid_setup (request_rec *r)
 /* run in map_to_storage hook */
 static int ruid_uiiii (request_rec *r)
 {
+	if (!ap_is_initial_req(r)) {
+		return DECLINED;
+	}
+
 	int retval = ruid_set_perm(r, __func__);
 
 	cap_t cap;
