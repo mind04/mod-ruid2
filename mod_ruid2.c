@@ -47,6 +47,7 @@
 #include <mpm_common.h>
 
 #include <unistd.h>
+#include <pwd.h>
 #include <sys/prctl.h>
 #include <sys/capability.h>
 
@@ -58,9 +59,10 @@
 
 #define RUID_MAXGROUPS		8
 
-#define RUID_MODE_CONF		0
-#define RUID_MODE_STAT		1
-#define RUID_MODE_UNDEFINED	2
+#define RUID_MODE_UNDEFINED	0
+#define RUID_MODE_CONF		1
+#define RUID_MODE_STAT		2
+#define RUID_MODE_USER		3
 
 #define RUID_MODE_STAT_NOT_USED	0
 #define RUID_MODE_STAT_USED	1
@@ -147,7 +149,7 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 	} else {
 		conf->ruid_mode = child->ruid_mode;
 	}
-	if (conf->ruid_mode == RUID_MODE_STAT) {
+	if (conf->ruid_mode >= RUID_MODE_STAT) {
 		conf->ruid_uid=UNSET;
 		conf->ruid_gid=UNSET;
 		conf->groupsnr = (child->groupsnr != NONE) ? UNSET : NONE;
@@ -198,11 +200,14 @@ static const char *set_mode (cmd_parms *cmd, void *mconfig, const char *arg)
 		return err;
 	}
 
+	dconf->ruid_mode=RUID_MODE_CONF;
 	if (strcasecmp(arg,"stat")==0) {
 		dconf->ruid_mode=RUID_MODE_STAT;
 		mode_stat_used |= RUID_MODE_STAT_USED;
-	} else {
-		dconf->ruid_mode=RUID_MODE_CONF;
+	}
+	if (strcasecmp(arg,"user")==0) {
+		dconf->ruid_mode=RUID_MODE_USER;
+		mode_stat_used |= RUID_MODE_STAT_USED;
 	}
 
 	return NULL;
@@ -488,7 +493,8 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	gid_t gid;
 	uid_t uid;
 	gid_t groups[RUID_MAXGROUPS];
-	int groupsnr;
+	int groupsnr, maxgroups;
+	struct passwd *pw_info;
 
 	cap_t cap;
 	cap_value_t capval[3];
@@ -502,11 +508,26 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 	}
 	cap_free(cap);
 
-	if (dconf->ruid_mode==RUID_MODE_STAT) {
+	if (dconf->ruid_mode >= RUID_MODE_STAT) {
 		/* set uid,gid to uid,gid of file
 		 * if file does not exist, finfo.user and finfo.group is set to uid,gid of parent directory
 		 */
-		gid=r->finfo.group;
+		if (dconf->ruid_mode >= RUID_MODE_USER) {
+			pw_info = getpwuid(r->finfo.user);
+			if (!pw_info) {
+				ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s>%s:getpwid couldn't find info about uid=%d, gid set to default group (%d)", MODULE_NAME, from_func, __func__, r->finfo.user, conf->default_gid);
+				return HTTP_FORBIDDEN;
+			} else {
+				gid=pw_info->pw_gid;
+				maxgroups = RUID_MAXGROUPS;
+				if ((dconf->groupsnr = getgrouplist(pw_info->pw_name, pw_info->pw_gid, dconf->groups, &maxgroups)) == -1) {
+					dconf->groups[0] = gid;
+					dconf->groupsnr = 1;
+				}
+			}
+		} else {
+			gid=r->finfo.group;
+		}
 		uid=r->finfo.user;
 	} else {
 		gid=(dconf->ruid_gid == UNSET) ? ap_unixd_config.group_id : dconf->ruid_gid;
