@@ -1,5 +1,10 @@
-.libs/
-*.la
-*.lo
+# Compilation results
 *.o
-*.slo
+*.so
+
+# Dist results
+*.tar
+*.txz
+
+# Hacking results
+*.patch
