@@ -29,22 +29,22 @@
    - https://github.com/mind04/mod-ruid2/issues
 */
 
-#include "ap_release.h"
+#include <ap_release.h>
 
 /* define CORE_PRIVATE for apache < 2.4 */
 #if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER < 4
 #define CORE_PRIVATE
 #endif
 
-#include "apr_strings.h"
-#include "apr_md5.h"
-#include "apr_file_info.h"
-#include "unixd.h"
-#include "http_core.h"
-#include "http_log.h"
-#include "http_protocol.h"
-#include "http_request.h"
-#include "mpm_common.h"
+#include <apr_strings.h>
+#include <apr_md5.h>
+#include <apr_file_info.h>
+#include <unixd.h>
+#include <http_core.h>
+#include <http_log.h>
+#include <http_protocol.h>
+#include <http_request.h>
+#include <mpm_common.h>
 
 #include <unistd.h>
 #include <sys/prctl.h>
