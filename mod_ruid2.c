@@ -1,6 +1,6 @@
 /*
-   mod_ruid2 0.9.8b1
-   Copyright (C) 2009-2012 Monshouwer Internet Diensten
+   mod_ruid2 0.9.8
+   Copyright (C) 2009-2013 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
 
@@ -48,7 +48,7 @@
 #include <sys/capability.h>
 
 #define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.8b1"
+#define MODULE_VERSION		"0.9.8"
 
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100
@@ -102,8 +102,9 @@ module AP_MODULE_DECLARE_DATA ruid2_module;
 
 static int mode_stat_used	= RUID_MODE_STAT_NOT_USED;
 static int chroot_used		= RUID_CHROOT_NOT_USED;
+static int cap_mode		= RUID_CAP_MODE_KEEP;
 
-static int coredump, cap_mode, root_handle;
+static int coredump, root_handle;
 static const char *old_root;
 
 static gid_t startup_groups[RUID_MAXGROUPS];
@@ -318,6 +319,12 @@ static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server
 		apr_pool_userdata_set((const void *)1, userdata_key, apr_pool_cleanup_null, s->process->pool);
 	} else {
 		ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, NULL, MODULE_NAME "/" MODULE_VERSION " enabled");
+
+		/* MaxRequestsPerChild MUST be 1 to enable drop capability mode */
+		if (ap_max_requests_per_child == 1) {
+			ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, NULL, MODULE_NAME " is in drop capability mode");
+			cap_mode = RUID_CAP_MODE_DROP;
+		}
 	}
 
 	return OK;
@@ -352,16 +359,21 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 	}
 
 	/* setup chroot jailbreak */
-	if (chroot_used == RUID_CHROOT_USED) {
+	if (chroot_used == RUID_CHROOT_USED && cap_mode == RUID_CAP_MODE_KEEP) {
 		if ((root_handle = open("/.", O_RDONLY)) < 0) {
 			root_handle = UNSET;
 			ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR opening root file descriptor failed (%s)", MODULE_NAME, strerror(errno));
+		} else if (fcntl(root_handle, F_SETFD, FD_CLOEXEC) < 0) {
+			ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR unable to set close-on-exec flag on root file descriptor (%s)", MODULE_NAME, strerror(errno));
+			if (close(root_handle) < 0)
+				ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR closing root file descriptor (%d) failed", MODULE_NAME, root_handle);
+			root_handle = UNSET;
 		} else {
 			/* register cleanup function */
 			apr_pool_cleanup_register(p, (void*)((long)root_handle), ruid_child_exit, apr_pool_cleanup_null);
 		}
 	} else {
-		root_handle = UNSET;
+		root_handle = (chroot_used == RUID_CHROOT_USED ? NONE : UNSET);
 	}
 
 	/* init cap with all zeros */
@@ -381,9 +393,6 @@ static void ruid_child_init (apr_pool_t *p, server_rec *s)
 		ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s:cap_set_proc failed", MODULE_NAME, __func__);
 	}
 	cap_free(cap);
-
-	/* MaxRequestsPerChild MUST be 1 to enable drop capability mode */
-	cap_mode = (ap_max_requests_per_child == 1 ? RUID_CAP_MODE_DROP : RUID_CAP_MODE_KEEP);
 
 	/* check if process is dumpable */
 	coredump = prctl(PR_GET_DUMPABLE);
@@ -618,6 +627,7 @@ static int ruid_uiiii (request_rec *r)
 
 	int retval = ruid_set_perm(r, __func__);
 
+	int ncap;
 	cap_t cap;
 	cap_value_t capval[4];
 
@@ -627,8 +637,9 @@ static int ruid_uiiii (request_rec *r)
 		capval[0]=CAP_SETUID;
 		capval[1]=CAP_SETGID;
 		capval[2]=CAP_DAC_READ_SEARCH;
-		capval[3]=CAP_SYS_CHROOT;
-		cap_set_flag(cap,CAP_PERMITTED,4,capval,CAP_CLEAR);
+		ncap = 2;
+		if (root_handle == UNSET) capval[ncap++] = CAP_SYS_CHROOT;
+		cap_set_flag(cap,CAP_PERMITTED,ncap,capval,CAP_CLEAR);
 
 		if (cap_set_proc(cap)!=0) {
 			ap_log_error (APLOG_MARK, APLOG_ERR, 0, NULL, "%s CRITICAL ERROR %s:cap_set_proc failed after setuid", MODULE_NAME, __func__);

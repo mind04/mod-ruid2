@@ -1,6 +1,6 @@
 Summary: Run all httpd process under user's access right.
 Name: mod_ruid2
-Version: 0.9.7
+Version: 0.9.8
 Release: 1%{dist}
 Group: System Environment/Daemons
 URL: http://sourceforge.net/projects/mod-ruid/
@@ -47,7 +47,12 @@ install -m 644 ruid2.conf \
 
 
 %changelog
-* Wed Apr 11 2012 Kees Monshouwer <km|monshouwer_com> 0.9.6-1
+* Fri Mar 22 2013 Kees Monshouwer <km|monshouwer_com> 0.9.8-1
+- Address reported security bug in chroot mode. Thanks to the
+  "cPanel Security Team" for the discovery of this bug.
+- Improve chroot behavior in drop capability mode.
+
+* Wed Apr 11 2012 Kees Monshouwer <km|monshouwer_com> 0.9.7-1
 - Update to 0.9.7
 - Reduction of memory usage, especially in large deployments
 
