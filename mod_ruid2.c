@@ -24,6 +24,9 @@
 
    Instalation:
    - /usr/apache/bin/apxs -a -i -l cap -c mod_ruid2.c
+
+   Issues:
+   - https://github.com/mind04/mod-ruid2/issues
 */
 
 #include "ap_release.h"
@@ -145,7 +148,7 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 	if (conf->ruid_mode == RUID_MODE_STAT) {
 		conf->ruid_uid=UNSET;
 		conf->ruid_gid=UNSET;
-		conf->groupsnr=UNSET;
+		conf->groupsnr = (child->groupsnr != NONE) ? UNSET : NONE;
 	} else {
 		conf->ruid_uid = (child->ruid_uid == UNSET) ? parent->ruid_uid : child->ruid_uid;
 		conf->ruid_gid = (child->ruid_gid == UNSET) ? parent->ruid_gid : child->ruid_gid;
