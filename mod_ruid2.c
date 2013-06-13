@@ -74,6 +74,8 @@
 #define UNSET			-1
 #define SET			1
 
+#define UNUSED(x) (void)(x)
+
 /* added for apache 2.0 and 2.2 compatibility */
 #if !AP_MODULE_MAGIC_AT_LEAST(20081201,0)
 #define ap_unixd_config unixd_config
@@ -169,6 +171,8 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 
 static void *create_config (apr_pool_t *p, server_rec *s)
 {
+	UNUSED(s);
+
 	ruid_config_t *conf = apr_palloc (p, sizeof (*conf));
 
 	conf->default_uid=ap_unixd_config.user_id;
@@ -245,6 +249,8 @@ static const char *set_groups (cmd_parms *cmd, void *mconfig, const char *arg)
 
 static const char *set_defuidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
 {
+	UNUSED(mconfig);
+
 	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
 
@@ -261,6 +267,8 @@ static const char *set_defuidgid (cmd_parms *cmd, void *mconfig, const char *uid
 
 static const char *set_minuidgid (cmd_parms *cmd, void *mconfig, const char *uid, const char *gid)
 {
+	UNUSED(mconfig);
+
 	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
 
@@ -277,6 +285,8 @@ static const char *set_minuidgid (cmd_parms *cmd, void *mconfig, const char *uid
 
 static const char *set_documentchroot (cmd_parms *cmd, void *mconfig, const char *chroot_dir, const char *document_root)
 {
+	UNUSED(mconfig);
+
 	ruid_config_t *conf = ap_get_module_config (cmd->server->module_config, &ruid2_module);
 	const char *err = ap_check_cmd_context (cmd, NOT_IN_DIR_LOC_FILE | NOT_IN_LIMIT);
 
@@ -308,6 +318,10 @@ static const command_rec ruid_cmds[] = {
 /* run in post config hook ( we are parent process and we are uid 0) */
 static int ruid_init (apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server_rec *s)
 {
+	UNUSED(p);
+	UNUSED(plog);
+	UNUSED(ptemp);
+
 	void *data;
 	const char *userdata_key = "ruid2_init";
 
@@ -351,6 +365,8 @@ static apr_status_t ruid_child_exit(void *data)
 /* run after child init we are uid User and gid Group */
 static void ruid_child_init (apr_pool_t *p, server_rec *s)
 {
+	UNUSED(s);
+
 	int ncap;
 	cap_t cap;
 	cap_value_t capval[4];
@@ -657,6 +673,8 @@ static int ruid_uiiii (request_rec *r)
 
 static void register_hooks (apr_pool_t *p)
 {
+	UNUSED(p);
+
 	ap_hook_post_config (ruid_init, NULL, NULL, APR_HOOK_MIDDLE);
 	ap_hook_child_init (ruid_child_init, NULL, NULL, APR_HOOK_MIDDLE);
 	ap_hook_post_read_request(ruid_setup, NULL, NULL, APR_HOOK_MIDDLE);
