@@ -1,0 +1,5 @@
+.libs/
+mod_ruid2.la
+mod_ruid2.lo
+mod_ruid2.o
+mod_ruid2.slo
