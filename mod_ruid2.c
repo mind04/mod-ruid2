@@ -154,7 +154,9 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 	} else {
 		conf->ruid_uid = (child->ruid_uid == UNSET) ? parent->ruid_uid : child->ruid_uid;
 		conf->ruid_gid = (child->ruid_gid == UNSET) ? parent->ruid_gid : child->ruid_gid;
-		if (child->groupsnr > 0) {
+		if (child->groupsnr == NONE) {
+			conf->groupsnr = NONE;
+		} else if (child->groupsnr > 0) {
 			memcpy(conf->groups, child->groups, sizeof(child->groups));
 			conf->groupsnr = child->groupsnr;
 		} else if (parent->groupsnr > 0) {
