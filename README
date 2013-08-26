@@ -1,7 +1,7 @@
 ABOUT
 mod_ruid2 is a suexec module for apache 2.0, 2.2 and 2.4, based on mod_ruid and mod_suid2
 
--it runs only on linux because afaik only linux has implemented posix 1003.1e capabilities
+-it runs only on Linux because only the Linux kernel has implemented the required process capabilities.
 -it has better performance than mod_suid2 because it doesn`t need to kill httpd children
  after one request. it makes use of kernel capabilites and after receiving a new request suids again.
 -there are some security issues, for instance if attacker successfully exploits the httpd process,
@@ -29,7 +29,7 @@ CONFIGURE OPTIONS:
  RMinUidGid user|#uid group|#gid - when uid/gid is < than min uid/gid set to default uid/gid
  RDefaultUidGid user|#uid group|#gid
 
- RGroups group1 group2 - aditional groups set via setgroups
+ RGroups group1 group2 - additional groups set via setgroups
  @none - clear all previous defined groups.
 
  RDocumentChrRoot - Set chroot directory and the document root inside
