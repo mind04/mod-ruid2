@@ -522,11 +522,7 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 		groupsnr = startup_groupsnr;
 	} else if (dconf->groupsnr > 0) {
 		for (groupsnr = 0; groupsnr < dconf->groupsnr; groupsnr++) {
-			if (dconf->groups[groupsnr] >= conf->min_gid) {
-				groups[groupsnr] = dconf->groups[groupsnr];
-			} else {
-				groups[groupsnr] = conf->default_gid;
-			}
+			groups[groupsnr] = dconf->groups[groupsnr];
 		}
 	} else {
 		groupsnr = 0;
