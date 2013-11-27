@@ -503,17 +503,17 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 		 */
 		gid=r->finfo.group;
 		uid=r->finfo.user;
+
+		/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
+		if (uid < conf->min_uid) {
+			uid=conf->default_uid;
+		}
+		if (gid < conf->min_gid) {
+			gid=conf->default_gid;
+		}
 	} else {
 		gid=(dconf->ruid_gid == UNSET) ? ap_unixd_config.group_id : dconf->ruid_gid;
 		uid=(dconf->ruid_uid == UNSET) ? ap_unixd_config.user_id : dconf->ruid_uid;
-	}
-
-	/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
-	if (uid < conf->min_uid) {
-		uid=conf->default_uid;
-	}
-	if (gid < conf->min_gid) {
-		gid=conf->default_gid;
 	}
 
 	/* set supplementary groups */
