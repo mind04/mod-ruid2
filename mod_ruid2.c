@@ -1,5 +1,5 @@
 /*
-   mod_ruid2 0.9.8
+   mod_ruid2
    Copyright (C) 2009-2013 Monshouwer Internet Diensten
 
    Author: Kees Monshouwer
@@ -21,9 +21,6 @@
      Copyright 2004 by Hideo NAKAMITSU. All rights reserved
    - mod_ruid - http://websupport.sk/~stanojr/projects/mod_ruid/
      Copyright 2004 by Pavel Stano. All rights reserved
-
-   Instalation:
-   - /usr/apache/bin/apxs -a -i -l cap -c mod_ruid2.c
 
    Issues:
    - https://github.com/mind04/mod-ruid2/issues
@@ -49,9 +46,6 @@
 #include <unistd.h>
 #include <sys/prctl.h>
 #include <sys/capability.h>
-
-#define MODULE_NAME		"mod_ruid2"
-#define MODULE_VERSION		"0.9.8"
 
 #define RUID_MIN_UID		100
 #define RUID_MIN_GID		100
@@ -154,17 +148,18 @@ static void *merge_dir_config(apr_pool_t *p, void *base, void *overrides)
 	} else {
 		conf->ruid_uid = (child->ruid_uid == UNSET) ? parent->ruid_uid : child->ruid_uid;
 		conf->ruid_gid = (child->ruid_gid == UNSET) ? parent->ruid_gid : child->ruid_gid;
-		if (child->groupsnr == NONE) {
-			conf->groupsnr = NONE;
-		} else if (child->groupsnr > 0) {
-			memcpy(conf->groups, child->groups, sizeof(child->groups));
-			conf->groupsnr = child->groupsnr;
-		} else if (parent->groupsnr > 0) {
-			memcpy(conf->groups, parent->groups, sizeof(parent->groups));
-			conf->groupsnr = parent->groupsnr;
-		} else {
-			conf->groupsnr = (child->groupsnr == UNSET) ? parent->groupsnr : child->groupsnr;
-		}
+	}
+
+	if (child->groupsnr == NONE) {
+		conf->groupsnr = NONE;
+	} else if (child->groupsnr > 0) {
+		memcpy(conf->groups, child->groups, sizeof(child->groups));
+		conf->groupsnr = child->groupsnr;
+	} else if (parent->groupsnr > 0) {
+		memcpy(conf->groups, parent->groups, sizeof(parent->groups));
+		conf->groupsnr = parent->groupsnr;
+	} else {
+		conf->groupsnr = (child->groupsnr == UNSET) ? parent->groupsnr : child->groupsnr;
 	}
 
 	return conf;
@@ -508,17 +503,17 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 		 */
 		gid=r->finfo.group;
 		uid=r->finfo.user;
+
+		/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
+		if (uid < conf->min_uid) {
+			uid=conf->default_uid;
+		}
+		if (gid < conf->min_gid) {
+			gid=conf->default_gid;
+		}
 	} else {
 		gid=(dconf->ruid_gid == UNSET) ? ap_unixd_config.group_id : dconf->ruid_gid;
 		uid=(dconf->ruid_uid == UNSET) ? ap_unixd_config.user_id : dconf->ruid_uid;
-	}
-
-	/* if uid of filename is less than conf->min_uid then set to conf->default_uid */
-	if (uid < conf->min_uid) {
-		uid=conf->default_uid;
-	}
-	if (gid < conf->min_gid) {
-		gid=conf->default_gid;
 	}
 
 	/* set supplementary groups */
@@ -527,11 +522,7 @@ static int ruid_set_perm (request_rec *r, const char *from_func)
 		groupsnr = startup_groupsnr;
 	} else if (dconf->groupsnr > 0) {
 		for (groupsnr = 0; groupsnr < dconf->groupsnr; groupsnr++) {
-			if (dconf->groups[groupsnr] >= conf->min_gid) {
-				groups[groupsnr] = dconf->groups[groupsnr];
-			} else {
-				groups[groupsnr] = conf->default_gid;
-			}
+			groups[groupsnr] = dconf->groups[groupsnr];
 		}
 	} else {
 		groupsnr = 0;
