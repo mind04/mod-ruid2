@@ -679,7 +679,7 @@ static void register_hooks (apr_pool_t *p)
 
 	ap_hook_post_config (ruid_init, NULL, NULL, APR_HOOK_MIDDLE);
 	ap_hook_child_init (ruid_child_init, NULL, NULL, APR_HOOK_MIDDLE);
-	ap_hook_post_read_request(ruid_setup, NULL, NULL, APR_HOOK_MIDDLE);
+	ap_hook_post_read_request(ruid_setup, NULL, NULL, APR_HOOK_REALLY_FIRST);
 	ap_hook_header_parser(ruid_uiiii, NULL, NULL, APR_HOOK_FIRST);
 }
 
